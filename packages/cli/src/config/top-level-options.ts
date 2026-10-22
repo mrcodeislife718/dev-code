@@ -51,6 +51,7 @@ const AUTH_TYPE_CHOICES = [
   'qwen-oauth',
   'gemini',
   'vertex-ai',
+  'github-copilot',
 ] as const satisfies ReadonlyArray<`${CoreAuthType}`>;
 
 // AuthType drift witness (the choices array's `satisfies` check only
@@ -64,6 +65,7 @@ export const AUTH_TYPE_PARITY_WITNESS: Record<`${CoreAuthType}`, true> = {
   'qwen-oauth': true,
   gemini: true,
   'vertex-ai': true,
+  'github-copilot': true,
 };
 
 /** Usage banner shared by both help builders, kept here with the options. */

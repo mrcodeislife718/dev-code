@@ -16,6 +16,7 @@ import {
   type ProviderConfig,
   type ProviderSetupInputs,
 } from '@qwen-code/qwen-code-core';
+import { connectGithubCopilot } from './copilot-connect.js';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { LoadedSettings } from '../../config/settings.js';
 import { createLoadedSettingsAdapter } from '../../config/loadedSettingsAdapter.js';
@@ -74,6 +75,8 @@ export type AuthController = {
       providerConfig: ProviderConfig,
       inputs: ProviderSetupInputs,
     ) => Promise<void>;
+    /** Sign in through the GitHub Copilot SDK and save the account's models. */
+    handleCopilotConnect: () => Promise<void>;
     openAuthDialog: () => void;
     cancelAuthentication: () => void;
   };
@@ -246,6 +249,32 @@ export const useAuthCommand = (
     ],
   );
 
+  const handleCopilotConnect = useCallback(async () => {
+    try {
+      setPendingAuthType(AuthType.USE_GITHUB_COPILOT);
+      setIsAuthenticating(true);
+      setAuthError(null);
+
+      await connectGithubCopilot(settings, config);
+      completeAuthentication();
+      addItem(
+        {
+          type: MessageType.INFO,
+          text: t(
+            'Successfully configured GitHub Copilot. Use /model to switch models.',
+          ),
+        },
+        Date.now(),
+      );
+      logAuth(
+        config,
+        new AuthEvent(AuthType.USE_GITHUB_COPILOT, 'manual', 'success'),
+      );
+    } catch (error) {
+      handleAuthFailure(error, AuthType.USE_GITHUB_COPILOT);
+    }
+  }, [settings, config, completeAuthentication, addItem, handleAuthFailure]);
+
   // -- Dialog open / close / cancel ----------------------------------------
 
   const openAuthDialog = useCallback(() => {
@@ -280,6 +309,7 @@ export const useAuthCommand = (
       AuthType.QWEN_OAUTH,
       AuthType.USE_OPENAI,
       AuthType.USE_OPENAI_RESPONSES,
+      AuthType.USE_GITHUB_COPILOT,
       AuthType.USE_ANTHROPIC,
       AuthType.USE_GEMINI,
       AuthType.USE_VERTEX_AI,
@@ -321,6 +351,7 @@ export const useAuthCommand = (
       onAuthError,
       closeAuthDialog,
       handleProviderSubmit,
+      handleCopilotConnect,
       openAuthDialog,
       cancelAuthentication,
     }),
@@ -329,6 +360,7 @@ export const useAuthCommand = (
       onAuthError,
       closeAuthDialog,
       handleProviderSubmit,
+      handleCopilotConnect,
       openAuthDialog,
       cancelAuthentication,
     ],
@@ -346,6 +378,7 @@ export const useAuthCommand = (
     qwenAuthState,
     closeAuthDialog,
     handleProviderSubmit,
+    handleCopilotConnect,
     openAuthDialog,
     cancelAuthentication,
     state,

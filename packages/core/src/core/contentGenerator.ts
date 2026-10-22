@@ -358,8 +358,13 @@ export function validateModelConfig(
     return { valid: true, errors: [] };
   }
 
-  // API key is required for all other auth types
-  if (!config.apiKey && !usesVertexApplicationDefaultCredentials(config)) {
+  // API key is required for all other auth types; GitHub Copilot signs in
+  // through the Copilot SDK instead.
+  if (
+    config.authType !== AuthType.USE_GITHUB_COPILOT &&
+    !config.apiKey &&
+    !usesVertexApplicationDefaultCredentials(config)
+  ) {
     if (isStrictModelProvider) {
       errors.push(
         new StrictMissingCredentialsError(
@@ -586,6 +591,13 @@ export async function createContentGenerator(
         }
         throw new Error(error instanceof Error ? error.message : String(error));
       }
+    } else if (authType === AuthType.USE_GITHUB_COPILOT) {
+      loadBaseGenerator = async () => {
+        const { createCopilotContentGenerator } = await import(
+          './copilot-content-generator/index.js'
+        );
+        return createCopilotContentGenerator(generatorConfig, config);
+      };
     } else if (authType === AuthType.USE_ANTHROPIC) {
       loadBaseGenerator = async () => {
         const { createAnthropicContentGenerator } = await import(

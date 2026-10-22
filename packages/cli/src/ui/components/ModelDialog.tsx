@@ -422,6 +422,7 @@ export function ModelDialog({
       AuthType.USE_ANTHROPIC,
       AuthType.USE_GEMINI,
       AuthType.USE_VERTEX_AI,
+      AuthType.USE_GITHUB_COPILOT,
     ];
 
     // Filter to only include authTypes that have registry models and maintain order

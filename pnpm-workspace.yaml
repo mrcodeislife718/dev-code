@@ -115,8 +115,18 @@ allowBuilds:
   # build and test tooling, never shipped runtime.
   fsevents: false
   keytar: true
+  koffi: false
   msw: true
   protobufjs: true
 
 minimumReleaseAgeExclude:
   - '@qwen-code/channel-base'
+  - '@github/copilot-sdk-darwin-arm64@1.0.24'
+  - '@github/copilot-sdk-darwin-x64@1.0.24'
+  - '@github/copilot-sdk-linux-arm64@1.0.24'
+  - '@github/copilot-sdk-linux-x64@1.0.24'
+  - '@github/copilot-sdk-linuxmusl-arm64@1.0.24'
+  - '@github/copilot-sdk-linuxmusl-x64@1.0.24'
+  - '@github/copilot-sdk-win32-arm64@1.0.24'
+  - '@github/copilot-sdk-win32-x64@1.0.24'
+  - '@github/copilot-sdk@1.0.24'

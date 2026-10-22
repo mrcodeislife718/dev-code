@@ -317,6 +317,11 @@ export function validateAuthMethod(
     );
   }
 
+  if (authMethod === AuthType.USE_GITHUB_COPILOT) {
+    // Sign-in is checked by the Copilot SDK when the first request starts.
+    return null;
+  }
+
   if (authMethod === AuthType.USE_ANTHROPIC) {
     const apiKeyError = getApiKeyError(authMethod, settings.merged, config);
     if (apiKeyError) {

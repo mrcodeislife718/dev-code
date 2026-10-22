@@ -580,6 +580,32 @@ export VLLM_API_KEY="not-needed"
 >
 > Each provider example includes an `env` field to illustrate how the API key should be configured.
 
+## GitHub Copilot
+
+Qwen Code can use the models included in your GitHub Copilot subscription through GitHub's official [Copilot SDK](https://github.com/github/copilot-sdk). Qwen Code never reads or stores your GitHub token: sign-in is handled by the Copilot runtime that ships with the SDK.
+
+1. Sign in once with the Copilot CLI: `copilot login`.
+2. In Qwen Code run `/auth` and choose **GitHub Copilot**. Your account's models are saved under `modelProviders["github-copilot"]` and one is selected.
+3. Use `/model` to switch between your Copilot models.
+
+Equivalent manual configuration (no `envKey` or `apiKey` is needed):
+
+```json
+{
+  "modelProviders": {
+    "github-copilot": [
+      { "id": "claude-sonnet-5.5", "name": "Copilot: Claude Sonnet 5.5" }
+    ]
+  },
+  "security": { "auth": { "selectedType": "github-copilot" } },
+  "model": { "name": "claude-sonnet-5.5" }
+}
+```
+
+Qwen Code keeps running its own agent loop, tools, permissions and sessions; Copilot supplies the model only. Copilot's built-in shell, edit and MCP tools are hidden for these requests, so every tool call goes through Qwen Code's permission system. Requests count against your Copilot plan's usage and limits.
+
+Limitations: embeddings are not supported; reasoning effort is not forwarded; earlier conversation turns are sent to Copilot as a text transcript; image input is supported only in the latest user message; the `/auth` entry exists in the default UI only (OpenTUI users can edit settings manually).
+
 ## Alibaba Cloud Coding Plan
 
 Alibaba Cloud Coding Plan provides a pre-configured set of Qwen models optimized for coding tasks. This feature is available for users with Alibaba Cloud Coding Plan API access and offers a simplified setup experience with automatic model configuration updates.

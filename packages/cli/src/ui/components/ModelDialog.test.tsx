@@ -723,6 +723,53 @@ describe('<ModelDialog />', () => {
     expect(props.onClose).not.toHaveBeenCalled();
   });
 
+  it('lists GitHub Copilot models and switches to one of them', async () => {
+    const switchModel = vi.fn().mockResolvedValue(undefined);
+    const { props, mockSettings } = renderComponent({}, {
+      getModel: vi.fn(() => 'claude-sonnet-5.5'),
+      getAuthType: vi.fn(() => AuthType.USE_GITHUB_COPILOT),
+      switchModel,
+      getAllConfiguredModels: vi.fn(() => [
+        {
+          id: 'claude-sonnet-5.5',
+          label: 'Copilot: Claude Sonnet 5.5',
+          description: '',
+          authType: AuthType.USE_GITHUB_COPILOT,
+        },
+        {
+          id: 'gpt-6-luna',
+          label: 'Copilot: GPT-6 Luna',
+          description: '',
+          authType: AuthType.USE_GITHUB_COPILOT,
+        },
+      ]),
+      getContentGeneratorConfig: vi.fn(() => ({
+        authType: AuthType.USE_GITHUB_COPILOT,
+        model: 'gpt-6-luna', // state after the switch
+      })),
+    } as unknown as Partial<Config>);
+
+    const select = mockedSelect.mock.calls[0][0];
+    expect(select.items.map((item) => item.value)).toEqual([
+      `${AuthType.USE_GITHUB_COPILOT}::claude-sonnet-5.5`,
+      `${AuthType.USE_GITHUB_COPILOT}::gpt-6-luna`,
+    ]);
+
+    await select.onSelect(`${AuthType.USE_GITHUB_COPILOT}::gpt-6-luna`);
+
+    expect(switchModel).toHaveBeenCalledWith(
+      AuthType.USE_GITHUB_COPILOT,
+      'gpt-6-luna',
+      { baseUrl: undefined },
+    );
+    expect(mockSettings.setValue).toHaveBeenCalledWith(
+      SettingScope.User,
+      'model.name',
+      'gpt-6-luna',
+    );
+    expect(props.onClose).toHaveBeenCalled();
+  });
+
   it('calls config.switchModel and onClose when selecting a non-OAuth model', async () => {
     const switchModel = vi.fn().mockResolvedValue(undefined);
     const getAuthType = vi.fn(() => AuthType.USE_OPENAI);

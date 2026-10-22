@@ -12,4 +12,5 @@ export enum AuthType {
   USE_GEMINI = 'gemini',
   USE_VERTEX_AI = 'vertex-ai',
   USE_ANTHROPIC = 'anthropic',
+  USE_GITHUB_COPILOT = 'github-copilot',
 }

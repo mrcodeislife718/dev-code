@@ -45,6 +45,7 @@ type MainOption =
   | 'QWENCLOUD'
   | 'ALIBABA_MODELSTUDIO'
   | 'THIRD_PARTY_PROVIDERS'
+  | 'GITHUB_COPILOT'
   | 'CUSTOM_PROVIDER';
 
 // ---------------------------------------------------------------------------
@@ -85,6 +86,15 @@ const MAIN_ITEMS = [
       'Manually connect a local server, proxy, or unsupported provider',
     ),
     value: 'CUSTOM_PROVIDER' as MainOption,
+  },
+  {
+    key: 'GITHUB_COPILOT',
+    title: t('GitHub Copilot'),
+    label: t('GitHub Copilot'),
+    description: t(
+      'Use your Copilot subscription (sign in first with `copilot login`)',
+    ),
+    value: 'GITHUB_COPILOT' as MainOption,
   },
 ];
 
@@ -136,7 +146,12 @@ export function AuthDialog(): React.JSX.Element {
     auth: { authError },
   } = useUIState();
   const {
-    auth: { closeAuthDialog, handleProviderSubmit, onAuthError },
+    auth: {
+      closeAuthDialog,
+      handleProviderSubmit,
+      handleCopilotConnect,
+      onAuthError,
+    },
   } = useUIActions();
   const config = useConfig();
   const settings = useSettings();
@@ -271,11 +286,13 @@ export function AuthDialog(): React.JSX.Element {
   // (resolveMetadataKey returns config.id for *any* provider with a static
   // models[], so it can't be used to detect "Alibaba" specifically.)
   const defaultMainIndex = useMemo(() => {
+    if (settings.merged.security?.auth?.selectedType === 'github-copilot')
+      return 4;
     if (matchedProvider?.uiGroup === 'third-party') return 2;
     if (matchedProvider?.uiGroup === 'custom') return 3;
     if (matchedProvider?.uiGroup === 'alibaba') return 1;
     return 0;
-  }, [matchedProvider]);
+  }, [matchedProvider, settings]);
 
   // -- Handlers -------------------------------------------------------------
 
@@ -290,6 +307,9 @@ export function AuthDialog(): React.JSX.Element {
         break;
       case 'THIRD_PARTY_PROVIDERS':
         pushView('thirdparty-select');
+        break;
+      case 'GITHUB_COPILOT':
+        void handleCopilotConnect();
         break;
       case 'CUSTOM_PROVIDER':
         setupFlow.start(

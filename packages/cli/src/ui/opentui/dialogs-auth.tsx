@@ -64,6 +64,7 @@ import {
   type SetupStep,
 } from '../auth/useProviderSetupFlow.js';
 import { normalizeModelIds } from '../auth/useAuth.js';
+import { connectGithubCopilot } from '../auth/copilot-connect.js';
 import {
   MAX_MODELS_TO_SHOW,
   MODEL_CUSTOM_INPUT_FOCUS_INDEX,
@@ -110,6 +111,7 @@ type MainOption =
   | 'QWENCLOUD'
   | 'ALIBABA_MODELSTUDIO'
   | 'THIRD_PARTY_PROVIDERS'
+  | 'GITHUB_COPILOT'
   | 'CUSTOM_PROVIDER';
 
 interface RadioItem {
@@ -149,6 +151,14 @@ const MAIN_ITEMS: RadioItem[] = [
       'Manually connect a local server, proxy, or unsupported provider',
     ),
     value: 'CUSTOM_PROVIDER',
+  },
+  {
+    key: 'GITHUB_COPILOT',
+    label: t('GitHub Copilot'),
+    description: t(
+      'Use your Copilot subscription (sign in first with `copilot login`)',
+    ),
+    value: 'GITHUB_COPILOT',
   },
 ];
 
@@ -1338,6 +1348,31 @@ function AuthDialogFlow({
     [settings, config, notify, onClose],
   );
 
+  const handleCopilotConnect = useCallback(async () => {
+    try {
+      await connectGithubCopilot(settings, config);
+      notify?.(
+        t(
+          'Successfully configured GitHub Copilot. Use /model to switch models.',
+        ),
+      );
+      logAuth(
+        config,
+        new AuthEvent(AuthType.USE_GITHUB_COPILOT, 'manual', 'success'),
+      );
+      onClose();
+    } catch (error) {
+      const msg = t('Failed to authenticate. Message: {{message}}', {
+        message: getErrorMessage(error),
+      });
+      setErrorMessage(msg);
+      logAuth(
+        config,
+        new AuthEvent(AuthType.USE_GITHUB_COPILOT, 'manual', 'error', msg),
+      );
+    }
+  }, [settings, config, notify, onClose]);
+
   const setupFlow = useProviderSetupFlow(
     handleProviderSubmit,
     settings.merged.modelProviders,
@@ -1444,11 +1479,13 @@ function AuthDialogFlow({
   );
   // Land on the tab matching the active provider's uiGroup (ink parity).
   const defaultMainIndex = useMemo(() => {
+    if (settings.merged.security?.auth?.selectedType === 'github-copilot')
+      return 4;
     if (matchedProvider?.uiGroup === 'third-party') return 2;
     if (matchedProvider?.uiGroup === 'custom') return 3;
     if (matchedProvider?.uiGroup === 'alibaba') return 1;
     return 0;
-  }, [matchedProvider]);
+  }, [matchedProvider, settings]);
 
   // -- Main menu select -------------------------------------------------------
 
@@ -1465,6 +1502,9 @@ function AuthDialogFlow({
         case 'THIRD_PARTY_PROVIDERS':
           pushView('thirdparty-select');
           break;
+        case 'GITHUB_COPILOT':
+          void handleCopilotConnect();
+          break;
         case 'CUSTOM_PROVIDER':
           setupFlow.start(
             customProvider,
@@ -1479,7 +1519,7 @@ function AuthDialogFlow({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [clearErrors, pushView, setupFlow, settings],
+    [clearErrors, pushView, setupFlow, settings, handleCopilotConnect],
   );
 
   // -- Keyboard: main / sub-menu lists --------------------------------------

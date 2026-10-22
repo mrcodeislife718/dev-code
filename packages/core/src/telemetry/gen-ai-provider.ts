@@ -12,7 +12,8 @@ export type GenAiAuthType =
   | 'qwen-oauth'
   | 'gemini'
   | 'vertex-ai'
-  | 'anthropic';
+  | 'anthropic'
+  | 'github-copilot';
 
 interface ProviderConfig {
   authType?: GenAiAuthType;

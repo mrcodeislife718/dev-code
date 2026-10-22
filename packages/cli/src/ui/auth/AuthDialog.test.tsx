@@ -2062,6 +2062,36 @@ describe('AuthDialog Custom API Key Wizard', { timeout: 15000 }, () => {
   );
 
   itWhenTuiInputReliable(
+    'connects GitHub Copilot from the main menu',
+    async () => {
+      const settings = createStandardSettings();
+      const handleCopilotConnect = vi.fn().mockResolvedValue(undefined);
+      const { stdin, lastFrame, unmount } = renderAuthDialog(
+        settings,
+        {},
+        { handleCopilotConnect },
+      );
+
+      await selectAlibabaModelStudio(stdin, lastFrame);
+      await moveDownAndWaitForSelection(
+        stdin,
+        lastFrame,
+        'Third-party Providers',
+      );
+      await moveDownAndWaitForSelection(stdin, lastFrame, 'Custom Provider');
+      await moveDownAndWaitForSelection(stdin, lastFrame, 'GitHub Copilot');
+      await settleInput(150);
+      stdin.write('\r');
+
+      await vi.waitFor(() => expect(handleCopilotConnect).toHaveBeenCalled(), {
+        timeout: WAIT_FOR_TIMEOUT,
+      });
+
+      unmount();
+    },
+  );
+
+  itWhenTuiInputReliable(
     'reopens a saved Responses install with the API step on Responses',
     async () => {
       // The Custom Provider entry prefills the ids of the saved install, so

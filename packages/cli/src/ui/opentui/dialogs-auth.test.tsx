@@ -87,6 +87,11 @@ const mocks = vi.hoisted(() => {
 const core = vi.hoisted(() => ({
   applyProviderInstallPlan: vi.fn(),
   logAuth: vi.fn(),
+  connectGithubCopilot: vi.fn(),
+}));
+
+vi.mock('../auth/copilot-connect.js', () => ({
+  connectGithubCopilot: core.connectGithubCopilot,
 }));
 
 vi.mock('@opentui/react', () => ({
@@ -325,15 +330,58 @@ describe('OpenTuiAuthDialog (#57 onboarding flow)', () => {
     mocks.state.width = 100;
     core.applyProviderInstallPlan.mockReset().mockResolvedValue(undefined);
     core.logAuth.mockReset();
+    core.connectGithubCopilot.mockReset().mockResolvedValue(undefined);
   });
 
-  it('renders the main menu with the four top-level options', () => {
+  it('renders the main menu with the five top-level options', () => {
     renderDialog();
     expect(screen.getByText('Connect a Provider')).toBeTruthy();
     expect(screen.getByText('QwenCloud')).toBeTruthy();
     expect(screen.getByText('Alibaba ModelStudio')).toBeTruthy();
     expect(screen.getByText('Third-party Providers')).toBeTruthy();
     expect(screen.getByText('Custom Provider')).toBeTruthy();
+    expect(screen.getByText('GitHub Copilot')).toBeTruthy();
+  });
+
+  it('connects GitHub Copilot, notifies and closes', async () => {
+    const { onClose, notify, config } = renderDialog();
+    await press('up'); // wraps from QwenCloud to the last row: GitHub Copilot
+    await press('return');
+
+    await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(core.connectGithubCopilot).toHaveBeenCalledWith(
+      expect.anything(),
+      config,
+    );
+    expect(notify).toHaveBeenCalledWith(
+      expect.stringContaining('GitHub Copilot'),
+    );
+    expect(core.logAuth).toHaveBeenCalledWith(
+      config,
+      expect.objectContaining({
+        auth_type: AuthType.USE_GITHUB_COPILOT,
+        status: 'success',
+      }),
+    );
+  });
+
+  it('keeps the dialog open and shows the sign-in error when Copilot fails', async () => {
+    core.connectGithubCopilot.mockRejectedValueOnce(
+      new Error('GitHub Copilot is not signed in.'),
+    );
+    const { onClose, notify } = renderDialog();
+    await press('up');
+    await press('return');
+
+    await vi.waitFor(() => {
+      expect(screen.getByText(/not signed in/)).toBeTruthy();
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+    expect(core.logAuth).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ status: 'error' }),
+    );
   });
 
   it('blocks Esc on the main view while unauthenticated', async () => {
@@ -409,12 +457,13 @@ describe('OpenTuiAuthDialog (#57 onboarding flow)', () => {
     // Enter would open the access-method sub-menu instead.
     await press('up');
     await press('return');
-    expect(screen.getByText('OpenAI-compatible')).toBeTruthy();
+    expect(core.connectGithubCopilot).toHaveBeenCalled();
     expect(screen.queryByText(/Access Method/)).toBeNull();
   });
 
   it('wraps the main-menu cursor from the last row to the first (#160)', async () => {
     renderDialog();
+    await press('down');
     await press('down');
     await press('down');
     await press('down');
