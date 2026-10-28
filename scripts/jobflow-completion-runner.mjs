@@ -94,9 +94,14 @@ function writeContinuity(state) {
 function lockAvailable() {
   if (!existsSync(lockFile)) return;
   let owner;
-  try { owner = JSON.parse(readFileSync(lockFile, 'utf8')); }
+  try {
+    const record = JSON.parse(readFileSync(lockFile, 'utf8'));
+    // Previous versions used a plain numeric PID, not JSON metadata.
+    owner = typeof record === 'number' ? { pid: record } : record;
+  }
   catch { throw new Error('Unrecognized runner lock. Inspect manually before changing it.'); }
-  if (!Number.isSafeInteger(owner.pid) || owner.pid < 1) throw new Error('Runner lock owner is invalid.');
+  if (!owner || !Number.isSafeInteger(owner.pid) || owner.pid < 1)
+    throw new Error('Runner lock owner is invalid.');
   if (owner.bootId && bootId && owner.bootId !== bootId) { unlinkSync(lockFile); return; }
   try { process.kill(owner.pid, 0); }
   catch (error) {
