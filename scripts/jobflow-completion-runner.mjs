@@ -20,6 +20,10 @@ const check = process.argv.includes('--check');
 const maxCycles = once ? 1 : Number(process.env.JOBFLOW_MAX_CYCLES ?? '0');
 const delay = Number(process.env.JOBFLOW_RETRY_DELAY_MS ?? '10000');
 const stallLimit = Number(process.env.JOBFLOW_STALL_LIMIT ?? '3');
+const maxBackoff = Number(process.env.JOBFLOW_MAX_BACKOFF_MS ?? '300000');
+const sessionCycles = Number(process.env.JOBFLOW_SESSION_CYCLES ?? '1');
+const sessionWallTime = process.env.JOBFLOW_SESSION_WALL_TIME ?? '45m';
+const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 
 function fail(message) { console.error('JobFlow runner: ' + message); process.exitCode = 1; }
 function exec(command, args) {
@@ -52,8 +56,66 @@ function snapshot() {
   return createHash('sha256').update(JSON.stringify({ diff, summaries, ledger })).digest('hex');
 }
 function saveAtomic(path, data) {
-  writeFileSync(path + '.tmp', data);
+  writeFileSync(path + '.tmp', data, { mode: 0o600 });
   renameSync(path + '.tmp', path);
+}
+function tail(value, n = 2500) { return String(value ?? '').slice(-n); }
+function writeContinuity(state) {
+  const changed = tail(exec('git', ['status', '--short', '--untracked-files=normal']), 10000);
+  saveAtomic(join(workspace, 'continuity.md'), [
+    '# DevCode continuity index (not test evidence)',
+    'A model conversation is temporary. The actual repository and durable ledgers are the truth.',
+    'Branch: ' + state.branch,
+    'Model: ' + state.model,
+    'Cycle: ' + state.cycle,
+    'Last exit code: ' + (state.lastResult?.exitCode ?? 'none'),
+    'Consecutive no-progress cycles: ' + state.noProgress,
+    '',
+    '## READ THESE DURABLE FILES',
+    'contract.md: project acceptance contract and safety requirements',
+    'progress.md: current implementation task, exact next action and last verified checkpoint',
+    'requirements.md: scope and feature status; evidence.md: test evidence; blockers.md: external blockers',
+    'runs.jsonl: full execution chronology; state.json: session/cycle metadata',
+    'Inspect actual code, git history and tests before claiming a capability exists.',
+    'If nearing context limits, write an actionable checkpoint to progress.md and end the current round.',
+    'Always update progress.md and evidence.md with real results before ending a round.',
+    '',
+    '## Worktree status',
+    changed || '(clean)',
+    '',
+    '## Previous model output tail (unverified)',
+    tail(state.lastOutputTail),
+    '',
+    '## Previous model error tail',
+    tail(state.lastErrorTail, 1200),
+    ''
+  ].join('\n'));
+}
+function lockAvailable() {
+  if (!existsSync(lockFile)) return;
+  let owner;
+  try { owner = JSON.parse(readFileSync(lockFile, 'utf8')); }
+  catch { throw new Error('Unrecognized runner lock. Inspect manually before changing it.'); }
+  if (!Number.isSafeInteger(owner.pid) || owner.pid < 1) throw new Error('Runner lock owner is invalid.');
+  if (owner.bootId && bootId && owner.bootId !== bootId) { unlinkSync(lockFile); return; }
+  try { process.kill(owner.pid, 0); }
+  catch (error) {
+    if (error.code === 'ESRCH') { unlinkSync(lockFile); return; }
+    throw error;
+  }
+  throw new Error('Runner already active or PID held: ' + owner.pid);
+}
+async function localModelHealthy(endpoint, model) {
+  try {
+    const url = new URL(endpoint.replace(/\/$/, '') + '/models');
+    const response = await fetch(url, { signal: AbortSignal.timeout(7000) });
+    if (!response.ok) return false;
+    const data = await response.json();
+    return Array.isArray(data.data) && data.data.some((x) => x.id === model);
+  } catch { return false; }
+}
+function backoff(streak) {
+  return Math.min(maxBackoff, delay * 2 ** Math.min(7, Math.max(0, streak - 1)));
 }
 const CONTRACT = [
   '# JobFlow: the exact product DevCode must finish',
@@ -122,7 +184,7 @@ async function main() {
   const endpoint = modelAddress(process.env.OPENAI_BASE_URL || (process.env.OLLAMA_HOST ? new URL('/v1', process.env.OLLAMA_HOST).href : undefined));
   const model = process.env.OPENAI_MODEL;
   if (!model) throw new Error('Set OPENAI_MODEL to the name of your existing local 30B model');
-  if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1) {
+  if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1 || !Number.isSafeInteger(maxBackoff) || maxBackoff < delay || !Number.isSafeInteger(sessionCycles) || sessionCycles < 1) {
     throw new Error('Invalid cycle, delay or stall setting');
   }
   const binary = process.env.DEVCODE_BIN;
@@ -144,10 +206,12 @@ async function main() {
     return;
   }
 
-  mkdirSync(workspace, { recursive: true });
+  mkdirSync(workspace, { recursive: true, mode: 0o700 });
+  lockAvailable();
   let lock;
-  try { lock = openSync(lockFile, 'wx'); writeFileSync(lock, String(process.pid)); }
-  catch { throw new Error('Another run may be active. Check ' + lockFile + ' before removing a stale lock.'); }
+  try { lock = openSync(lockFile, 'wx', 0o600);
+    writeFileSync(lock, JSON.stringify({ pid: process.pid, bootId, started: new Date().toISOString() })); }
+  catch { throw new Error('Runner lock contested: ' + lockFile); }
   closeSync(lock);
   try {
     const files = {
@@ -168,33 +232,69 @@ async function main() {
       catch { throw new Error('Saved JobFlow progress is unreadable. No files were deleted.'); }
     }
     let rounds = 0;
+    let offlineStreak = 0;
     while (!stopped && (maxCycles === 0 || rounds < maxCycles)) {
-      rounds++;
+      if (!await localModelHealthy(endpoint, model)) {
+        offlineStreak++;
+        const pause = backoff(offlineStreak);
+        console.error('Local Ollama model temporarily unavailable; retry in ' + pause / 1000 + 's. State retained.');
+        await sleep(pause);
+        continue;
+      }
+      offlineStreak = 0;
       const started = new Date().toISOString();
       const before = snapshot();
-      const initial = !state.sessionId;
-      const prompt = initial
-        ? 'Implement JobFlow now. Read .jobflow-factory/contract.md and its progress records. Preserve Groups 1–4, complete Group 5, then all remaining requirements. Write real code and tests in this run, not merely a plan. Do not claim a live production launch.'
-        : 'Continue implementing the next unfinished JobFlow requirement. Read .jobflow-factory/contract.md and progress records, make real changes, run tests and record evidence. Do not only summarize.';
-      // Explicitly select the user's local OpenAI-compatible model, overriding saved Copilot settings.
-      // Do not permit the saved cloud fallback model to be chosen.
+      const resume = sessionCycles > 1 && state.sessionId &&
+        state.cycle % sessionCycles !== 0 && state.lastResult?.exitCode === 0 && state.noProgress === 0;
+      writeContinuity({ ...state, branch, model });
+      const prompt = [
+        'Implement the NEXT unfinished JobFlow requirement in real code now.',
+        'Read .jobflow-factory/continuity.md and .jobflow-factory/contract.md first.',
+        'Use progress.md, requirements.md, evidence.md and blockers.md as durable memory.',
+        'Inspect real code and tests. Preserve Groups 1–4; complete Group 5 and remaining requirements.',
+        'Make actual source changes, test them, repair failures, and update the evidence ledgers.',
+        'Write the precise next action in progress.md before ending. Sessions are intentionally rotated.',
+        'No cloud providers, paid actions, destructive git commands, pushes or live deployments.',
+        ...(state.noProgress >= stallLimit ? [
+          'RECOVERY: previous rounds made no worktree or ledger progress.',
+          'Diagnose previous output in continuity.md/runs.jsonl, select a smaller meaningful task',
+          'and implement it instead of repeating an empty response.'
+        ] : [])
+      ].join(' ');
       const args = [
         ...argsPrefix,
-        ...(initial ? [] : ['--resume', state.sessionId]),
-        '--auth-type', 'openai', '--model', model, '--fallback-model', model, '--approval-mode', 'auto',
+        ...(resume ? ['--resume', state.sessionId] : []),
+        '--auth-type', 'openai', '--model', model, '--fallback-model', model,
+        '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
         '-p', prompt, '--output-format', 'stream-json',
       ];
-      const result = await launch(executable, args, { ...process.env, OPENAI_BASE_URL: endpoint, OPENAI_MODEL: model, OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'local-only' });
-      const sessionId = sessionFrom(result.stdout) || state.sessionId;
+      const result = await launch(executable, args, {
+        ...process.env, OPENAI_BASE_URL: endpoint, OPENAI_MODEL: model,
+        OPENAI_API_KEY: 'local-only'
+      });
+      const sessionId = sessionFrom(result.stdout) || (resume ? state.sessionId : null);
       const changed = snapshot() !== before;
-      state = { cycle: state.cycle + 1, branch, model, endpoint, sessionId, noProgress: changed ? 0 : state.noProgress + 1, lastResult: { started, ended: new Date().toISOString(), exitCode: result.exitCode, changed } };
-      appendFileSync(logFile, JSON.stringify({ ...state.lastResult, cycle: state.cycle, sessionId, outputTail: result.stdout.slice(-3000), errorTail: result.stderr.slice(-2000) }) + '\n');
+      rounds++;
+      state = {
+        cycle: state.cycle + 1, branch, model, endpoint, sessionId,
+        noProgress: changed ? 0 : state.noProgress + 1,
+        lastOutputTail: tail(result.stdout), lastErrorTail: tail(result.stderr, 1200),
+        lastResult: { started, ended: new Date().toISOString(),
+          exitCode: result.exitCode, changed }
+      };
+      appendFileSync(logFile, JSON.stringify({
+        ...state.lastResult, cycle: state.cycle, sessionId,
+        outputTail: state.lastOutputTail, errorTail: state.lastErrorTail
+      }) + '\n', { mode: 0o600 });
       saveAtomic(stateFile, JSON.stringify(state, null, 2) + '\n');
-      console.log('Round ' + state.cycle + ': ' + (changed ? 'changes saved' : 'no changes') + '; DevCode result ' + result.exitCode + '.');
-      if (result.exitCode !== 0 && !changed) { fail('DevCode could not continue. Read .jobflow-factory/runs.jsonl for the exact error.'); break; }
-      if (state.noProgress >= stallLimit) { fail('DevCode has made no changes for several rounds. Inspect its records instead of endlessly repeating work.'); break; }
+      writeContinuity(state);
+      console.log('Round ' + state.cycle + ': ' + (changed ? 'changes found' : 'no changes') +
+        ', exit ' + result.exitCode + ', next round uses ' + (sessionCycles === 1 ? 'new context' : 'bounded context'));
+      if (state.noProgress >= stallLimit)
+        console.error('Recovery mode: rotating context, diagnosing failures, backing off without discarding progress.');
       if (stopped) break;
-      if (maxCycles === 0 || rounds < maxCycles) await sleep(delay);
+      if (maxCycles === 0 || rounds < maxCycles)
+        await sleep(changed ? delay : backoff(state.noProgress));
     }
     console.log('Saved progress in ' + workspace + '. Production completion is NOT assumed.');
   } finally { try { unlinkSync(lockFile); } catch { /* lock already removed */ } }
