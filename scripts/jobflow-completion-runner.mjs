@@ -27,6 +27,9 @@ const sessionWallTime = process.env.JOBFLOW_SESSION_WALL_TIME ?? '45m';
 const cloudKey = process.env.OPENROUTER_API_KEY ?? '';
 const cloudEnabled = process.env.DEVCODE_CLOUD_FALLBACK === '1' && cloudKey.length > 15;
 const cloudCheck = process.argv.includes('--cloud-check');
+// One DevCode round can make MANY cloud requests. Keep cloud rounds low
+// (default: 2/day), while OpenRouter enforces its own stricter request caps.
+const maxCloudRoundsDaily = Number(process.env.DEVCODE_MAX_FREE_CLOUD_ROUNDS_PER_DAY ?? '2');
 const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 
 function fail(message) { console.error('JobFlow runner: ' + message); process.exitCode = 1; }
@@ -135,7 +138,10 @@ function sanitizeLog(v) {
   return cloudKey ? t.split(cloudKey).join('[REDACTED_OPENROUTER_KEY]') : t;
 }
 async function safeCloudCandidate(state, models) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (state.cloudDay !== today) { state.cloudDay = today; state.cloudRounds = 0; }
   if (!cloudEnabled || !models.length || state.cloudUntil > Date.now()) return null;
+  if (state.cloudRounds >= maxCloudRoundsDaily) return null;
   try {
     const remaining = await freeQuotaRemaining(cloudKey);
     if (remaining !== null && remaining <= 2) {
@@ -217,7 +223,7 @@ async function main() {
   const endpoint = modelAddress(process.env.OPENAI_BASE_URL || (process.env.OLLAMA_HOST ? new URL('/v1', process.env.OLLAMA_HOST).href : undefined));
   const model = process.env.OPENAI_MODEL;
   if (!model) throw new Error('Set OPENAI_MODEL to the name of your existing local 30B model');
-  if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1 || !Number.isSafeInteger(maxBackoff) || maxBackoff < delay || !Number.isSafeInteger(sessionCycles) || sessionCycles < 1) {
+  if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1 || !Number.isSafeInteger(maxBackoff) || maxBackoff < delay || !Number.isSafeInteger(sessionCycles) || sessionCycles < 1 || !Number.isSafeInteger(maxCloudRoundsDaily) || maxCloudRoundsDaily < 0 || maxCloudRoundsDaily > 20) {
     throw new Error('Invalid cycle, delay or stall setting');
   }
   const binary = process.env.DEVCODE_BIN;
@@ -311,6 +317,13 @@ async function main() {
           route = { model: cloudModel, endpoint: OPENROUTER_ROOT, apiKey: cloudKey, source: 'openrouter-free' };
           state.cloudPreviousModel = cloudModel;
         }
+      }
+      if (route.source === 'openrouter-free') {
+        // Persist the allowance reservation BEFORE running a cloud session.
+        // A crash must not reset the counter and retry free requests forever.
+        state.cloudDay = new Date().toISOString().slice(0, 10);
+        state.cloudRounds = (state.cloudRounds || 0) + 1;
+        saveAtomic(stateFile, JSON.stringify({ ...state, branch, model, endpoint }, null, 2) + '\n');
       }
       if (!localReady && route.source === 'local') {
         offlineStreak++;
