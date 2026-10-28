@@ -45,9 +45,9 @@ export function resolveLocalModel(settings, env = process.env) {
   const providers = Object.values(settings.modelProviders || {})
     .flatMap((value) => Array.isArray(value) ? value : []);
   const selected = providers.find((x) => x.id === model || x.name === model);
-  const endpoint = env.OPENAI_BASE_URL || selected?.baseUrl || settings.model?.baseUrl || '';
+  const endpoint = env.OPENAI_BASE_URL || settings.model?.baseUrl || selected?.baseUrl || '';
   const auth = settings.security?.auth?.selectedType;
-  if (auth && !['openai', 'custom', 'openai-compatible'].includes(auth)) {
+  if ((!auth && !(env.OPENAI_MODEL && env.OPENAI_BASE_URL)) || (auth && !['openai', 'custom', 'openai-compatible'].includes(auth))) {
     throw new Error('DevCode is set to ' + auth + ', not a local OpenAI-compatible provider. Select your existing local model in DevCode before starting.');
   }
   if (!model || !isPrivateEndpoint(endpoint)) {
@@ -70,7 +70,7 @@ export function listChecks(packageJson) {
 }
 
 function runGit(project, args) {
-  const r = spawnSync('git', args, { cwd: project, encoding: 'utf8', timeout: 20000 });
+  const r = spawnSync('git', args, { cwd: project, encoding: 'utf8', timeout: 20000, maxBuffer: 50 * 1024 * 1024 });
   if (r.status !== 0) {
     throw new Error('git ' + args.join(' ') + ': ' + (r.stderr || r.error?.message || 'failed'));
   }
@@ -257,6 +257,9 @@ async function main() {
   const settingsFile = join(qwenHome, 'settings.json');
   const settings = existsSync(settingsFile) ? JSON.parse(readFileSync(settingsFile, 'utf8')) : {};
   const local = resolveLocalModel(settings);
+  process.env.OPENAI_BASE_URL = local.endpoint;
+  process.env.OPENAI_MODEL = local.model;
+  if (!process.env.OPENAI_API_KEY) process.env.OPENAI_API_KEY = 'devcode-local-only';
   console.log('Local-only inference: ' + local.model + ' @ ' + local.endpoint);
   const cliPath = resolve(opts.cli || join(factoryRoot, 'scripts', 'start.js'));
   if (!existsSync(cliPath)) throw new Error('DevCode launcher missing: ' + cliPath);
@@ -277,7 +280,7 @@ async function main() {
     state.lastGitFingerprint = after;
     state.noProgressCycles = before === after ? state.noProgressCycles + 1 : 0;
     if (verification.allPassed) {
-      state.status = 'production-verified-by-checks';
+      state.status = 'checks-passed-awaiting-live-evidence-review';
       saveState(dir, state);
       console.log('All configured production gates passed. Inspect live evidence before shipping.');
       break;
