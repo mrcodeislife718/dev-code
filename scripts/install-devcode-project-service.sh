@@ -25,7 +25,14 @@ PY
 )"
 fi
 # Neither the script nor the service adds a coding-request quota.
-node "$ROOT/scripts/devcode-project-continuity.mjs" --help >/dev/null 2>&1 || true
+# Do not invoke the live runner here: the service starts it once after installation.
+if systemctl --user --quiet is-active devcode-jobflow-continuity.service 2>/dev/null; then
+  echo 'Existing JobFlow factory service is running.' >&2
+  echo 'If this is the SAME project, stop the old runner before enabling the new one:' >&2
+  echo '  systemctl --user disable --now devcode-jobflow-continuity.service' >&2
+  echo 'No changes made to your working projects or existing service.' >&2
+  exit 2
+fi
 for val in "$MODEL" "$ROOT" "$PROJECT" "$(command -v node)"; do
   case "$val" in *%*|*$'\n'*|*'"'*) echo 'Unsupported special characters in model/path.' >&2; exit 1;; esac
 done
