@@ -18,7 +18,7 @@
       mobile browsers never flash the default (white) bar.
     -->
     <meta name="theme-color" content="#0d0d0d" />
-    <title>Qwen Code Web chat</title>
+    <title>DevCode Web chat</title>
     <!--
       PWA manifest: makes the Web Shell installable on Android / iOS.
       start_url is intentionally relative ("/") so it resolves against
@@ -58,7 +58,7 @@
           if (unsupported) {
             document.documentElement.setAttribute(
               'data-web-shell-unsupported-browser',
-              'Please update your browser. Qwen Code requires Chrome/Edge or Android System WebView 111+, Firefox 128+, or Safari/iOS 16.4+. / 请更新浏览器：Qwen Code 需要 Chrome/Edge 或 Android System WebView 111+、Firefox 128+ 或 Safari/iOS 16.4+。'
+              'Please update your browser. DevCode requires Chrome/Edge or Android System WebView 111+, Firefox 128+, or Safari/iOS 16.4+. / 请更新浏览器：DevCode 需要 Chrome/Edge 或 Android System WebView 111+、Firefox 128+ 或 Safari/iOS 16.4+。'
             );
           }
         } catch (e) {
@@ -88,7 +88,7 @@
       (img-src 'self' data: blob:). The encodeURIComponent(svg) encoding
       technique mirrors packages/web-templates/src/export-html/build.mjs;
       the artwork is from packages/desktop/bootstrap/qwen-code-logo.svg
-      (the original #082DFF Qwen mark on light tab bars, with a lighter
+      (the legacy upstream mark on light tab bars, with a lighter
       same-hue #8B9BFF fill for dark browser chrome via prefers-color-scheme).
     -->
     <link
@@ -109,7 +109,7 @@
     -->
     <!-- prettier-ignore -->
     <script>
-      !function(){try{var b=JSON.parse(localStorage.getItem('qwen-code-web-shell-brand')||'null');if(!b)return;if(b.title)document.title=b.title;if(b.logo){var l=document.querySelector('link[rel="icon"]');if(l)l.href=b.logo}}catch(e){console.warn('brand-init:',e)}}();
+      !function(){try{var b=JSON.parse(localStorage.getItem('devcode-web-shell-brand')||localStorage.getItem('qwen-code-web-shell-brand')||'null');if(!b)return;if(b.title)document.title=b.title;if(b.logo){var l=document.querySelector('link[rel="icon"]');if(l)l.href=b.logo}}catch(e){console.warn('brand-init:',e)}}();
     </script>
   </head>
   <body>
