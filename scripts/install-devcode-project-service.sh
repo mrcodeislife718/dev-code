@@ -7,13 +7,15 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 PROJECT="$(cd "${1:-$PWD}" && pwd -P)"
 [[ -e "$PROJECT/.git" ]] || { echo 'This folder must be an existing Git project.' >&2; exit 1; }
 [[ -f "$ROOT/scripts/devcode-project-continuity.mjs" ]] || { echo 'DevCode continuity file missing.' >&2; exit 1; }
+# Set up the DevCode settings name without touching your old saved records.
+node "$ROOT/scripts/migrate-devcode-home.mjs"
 MODEL="${OPENAI_MODEL:-}"
 if [[ -z "$MODEL" ]]; then
-  MODEL="$(python3 - "$HOME/.qwen/settings.json" <<'PY'
+  MODEL="$(python3 - "$HOME/.devcode/settings.json" "$HOME/.qwen/settings.json" <<'PY'
 import json,sys
 from pathlib import Path
-p=Path(sys.argv[1])
-if not p.exists(): raise SystemExit('Missing DevCode settings. Set OPENAI_MODEL before installing.')
+p=next((Path(v) for v in sys.argv[1:] if Path(v).exists()), None)
+if p is None: raise SystemExit('Missing DevCode settings. Set OPENAI_MODEL before installing.')
 settings=json.loads(p.read_text())
 models=settings.get('modelProviders',{}).get('openai',[])
 default=settings.get('model',{}).get('name','')
@@ -55,6 +57,7 @@ StartLimitIntervalSec=0
 Type=simple
 WorkingDirectory="$PROJECT"
 Environment="DEVCODE_PROJECT_DIR=$PROJECT"
+Environment="DEVCODE_HOME=$HOME/.devcode"
 Environment="OPENAI_BASE_URL=http://127.0.0.1:11434/v1"
 Environment="OPENAI_MODEL=$MODEL"
 Environment="OPENAI_API_KEY=local-only"
