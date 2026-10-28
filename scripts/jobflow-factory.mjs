@@ -49,8 +49,10 @@ export function resolveLocalModel(settings, env = process.env) {
     return [];
   });
   const selected = providers.find((x) => x.id === model || x.name === model || x.model === model);
+  const parentProvider = providerValues.find((x) => x && !Array.isArray(x) && Array.isArray(x.models) && x.models.some((m) => m.id === model || m.name === model || m.model === model));
   const endpoint = env.OPENAI_BASE_URL || settings.model?.baseUrl ||
-    selected?.baseUrl || selected?.baseURL || selected?.base_url || '';
+    selected?.baseUrl || selected?.baseURL || selected?.base_url ||
+    parentProvider?.baseUrl || parentProvider?.baseURL || parentProvider?.base_url || '';
   const auth = settings.security?.auth?.selectedType;
   if (auth && !['openai', 'custom', 'openai-compatible'].includes(auth)) {
     throw new Error('DevCode uses ' + auth + ' authentication; select the existing local OpenAI-compatible provider first.');
