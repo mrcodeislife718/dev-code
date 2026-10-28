@@ -41,17 +41,22 @@ export function isPrivateEndpoint(value) {
 }
 
 export function resolveLocalModel(settings, env = process.env) {
-  const model = env.OPENAI_MODEL || settings.model?.name || '';
-  const providers = Object.values(settings.modelProviders || {})
-    .flatMap((value) => Array.isArray(value) ? value : []);
-  const selected = providers.find((x) => x.id === model || x.name === model);
-  const endpoint = env.OPENAI_BASE_URL || settings.model?.baseUrl || selected?.baseUrl || '';
+  const model = env.OPENAI_MODEL || settings.model?.name || settings.model?.model || '';
+  const providerValues = Object.values(settings.modelProviders || {});
+  const providers = providerValues.flatMap((value) => {
+    if (Array.isArray(value)) return value;
+    if (value && typeof value === 'object') return [value, ...(Array.isArray(value.models) ? value.models : [])];
+    return [];
+  });
+  const selected = providers.find((x) => x.id === model || x.name === model || x.model === model);
+  const endpoint = env.OPENAI_BASE_URL || settings.model?.baseUrl ||
+    selected?.baseUrl || selected?.baseURL || selected?.base_url || '';
   const auth = settings.security?.auth?.selectedType;
-  if ((!auth && !(env.OPENAI_MODEL && env.OPENAI_BASE_URL)) || (auth && !['openai', 'custom', 'openai-compatible'].includes(auth))) {
-    throw new Error('DevCode is set to ' + auth + ', not a local OpenAI-compatible provider. Select your existing local model in DevCode before starting.');
+  if (auth && !['openai', 'custom', 'openai-compatible'].includes(auth)) {
+    throw new Error('DevCode uses ' + auth + ' authentication; select the existing local OpenAI-compatible provider first.');
   }
   if (!model || !isPrivateEndpoint(endpoint)) {
-    throw new Error('Local model not verified: expected a selected model and private-network/localhost OpenAI-compatible endpoint in existing ~/.qwen/settings.json or OPENAI_MODEL / OPENAI_BASE_URL. Refusing Copilot/cloud fallback.');
+    throw new Error('Local model not verified: set OPENAI_MODEL and OPENAI_BASE_URL to your existing private server or configure the selected model in DevCode. Refusing Copilot/cloud fallback.');
   }
   return { model, endpoint };
 }
