@@ -38,6 +38,7 @@
     "sandboxImageUri": "ghcr.io/qwenlm/qwen-code:0.25.3"
   },
   "scripts": {
+    "devcode": "node scripts/dev.js",
     "start": "node scripts/start.js",
     "dev": "node scripts/dev.js",
     "dev:daemon": "node scripts/daemon-dev.js",
@@ -243,5 +244,7 @@
     "*.{mjs,cjs,json,md,yml,yaml,css,html}": [
       "prettier --write"
     ]
-  }
+  },
+  "description": "DevCode — local-first autonomous engineering factory",
+  "displayName": "DevCode"
 }
