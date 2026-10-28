@@ -174,7 +174,7 @@ export class Storage {
     if (contextualDir?.pinned) {
       return contextualDir.dir ?? Storage.getGlobalQwenDir();
     }
-    const envDir = process.env['QWEN_RUNTIME_DIR'];
+    const envDir = process.env['DEVCODE_RUNTIME_DIR'] || process.env['QWEN_RUNTIME_DIR'];
     if (envDir) {
       return (
         Storage.resolveRuntimeBaseDir(envDir) ?? Storage.getGlobalQwenDir()
@@ -191,7 +191,7 @@ export class Storage {
   }
 
   static getGlobalQwenDir(): string {
-    const envDir = process.env['QWEN_HOME'];
+    const envDir = process.env['DEVCODE_HOME'] || process.env['QWEN_HOME'];
     if (envDir) {
       return Storage.resolvePath(envDir);
     }
