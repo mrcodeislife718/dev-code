@@ -4,7 +4,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-export const DEFAULT_CONTEXT_FILENAME = 'QWEN.md';
+export const DEFAULT_CONTEXT_FILENAME = 'DEVCODE.md';
+/** Previously used instruction file: still read for existing projects. */
+export const LEGACY_CONTEXT_FILENAME = 'QWEN.md';
 export const AGENT_CONTEXT_FILENAME = 'AGENTS.md';
 /**
  * Per-developer, project-scoped context file. Anchored at
@@ -25,14 +27,16 @@ export const AGENT_CONTEXT_FILENAME = 'AGENTS.md';
  * per-cwd file and (when cwd is the home directory) would collide with
  * the global Qwen dir at `~/.qwen/`.
  */
-export const LOCAL_CONTEXT_FILENAME = 'QWEN.local.md';
-export const MEMORY_SECTION_HEADER = '## Qwen Added Memories';
+export const LOCAL_CONTEXT_FILENAME = 'DEVCODE.local.md';
+export const LEGACY_LOCAL_CONTEXT_FILENAME = 'QWEN.local.md';
+export const MEMORY_SECTION_HEADER = '## DevCode Added Memories';
 
 // This variable will hold the currently configured filename for context files.
-// It defaults to include both QWEN.md and AGENTS.md but can be overridden by setMemoryFilename.
-// QWEN.md is first to maintain backward compatibility (used by /init command tool).
+// New projects write DEVCODE.md. Existing QWEN.md and AGENTS.md are still read.
+// Users can override these names with setMemoryFilename.
 let currentMemoryFilename: string | string[] = [
   DEFAULT_CONTEXT_FILENAME,
+  LEGACY_CONTEXT_FILENAME,
   AGENT_CONTEXT_FILENAME,
 ];
 
