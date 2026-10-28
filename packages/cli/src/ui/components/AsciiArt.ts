@@ -5,9 +5,9 @@
  */
 
 export const shortAsciiLogo = `
-  ____             ____          _
- |  _ \\  _____   / ___|___   __| | ___
- | | | |/ _ \\ \\ / /  / _ \\ / _` |/ _ \\
- | |_| |  __/\\ V /  | (_) | (_| |  __/
- |____/ \\___| \\_/    \\___/ \\__,_|\\___|
+ DDDD   EEEEE  V   V   CCCC   OOO   DDDD   EEEEE
+ D   D  E      V   V  C      O   O  D   D  E
+ D   D  EEEE   V   V  C      O   O  D   D  EEEE
+ D   D  E       V V   C      O   O  D   D  E
+ DDDD   EEEEE    V     CCCC   OOO   DDDD   EEEEE
 `;
