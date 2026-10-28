@@ -9,9 +9,9 @@ export const OPENROUTER_ROOT = 'https://openrouter.ai/api/v1';
 export const PREFERRED_FREE_MODELS = Object.freeze([
   'thinkingmachines/inkling-small:free',
   'recursive/flint-v1.0:free',
-  'cohere/north-mini-code:free',
+  'thinkingmachines/inkling:free',
   'nvidia/nemotron-3-ultra-550b-a55b:free',
-  'google/gemma-4-31b-it:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
 ]);
 
 export function isEligibleModel(entry) {
