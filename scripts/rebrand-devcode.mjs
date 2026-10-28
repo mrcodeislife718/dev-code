@@ -23,7 +23,7 @@ const skip = /^(?:docs\/archive\/|node_modules\/|vendor\/|dist\/|build\/|coverag
 const skipFile = /(?:^|\/)(?:LICENSE|NOTICE|COPYING|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$/i;
 
 function cmd(args) {
-  const r = spawnSync('git', args, { cwd: root, encoding: 'buffer', maxBuffer: 25 * 1024 * 1024 });
+  const r = spawnSync('git', args, { cwd: root, maxBuffer: 25 * 1024 * 1024 });
   if (r.error || r.status !== 0)
     throw Error(r.error?.message || r.stderr?.toString('utf8') || 'Git command failed');
   return r.stdout;
