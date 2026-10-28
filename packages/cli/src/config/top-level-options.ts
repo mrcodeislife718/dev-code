@@ -12,13 +12,13 @@ import type {
 
 /**
  * Top-level (global) option definitions shared between the bootstrap
- * `qwen --help` fast-path and the real argument parser in config.ts.
+ * `devcode --help` fast-path and the real argument parser in config.ts.
  *
  * These options are valid at the top level, before any subcommand.
  */
 
 // The bootstrap entry evaluates this module in-process on every fast path
-// (`qwen --help`, `qwen mcp`, ...), so it must not import
+// (`devcode --help`, `devcode mcp`, ...), so it must not import
 // @qwen-code/qwen-code-core at runtime: the core barrel pulls the entire
 // agent runtime into the entry's static import closure (measured +10 MB /
 // ~6x slower fast paths). The literals below mirror core's ApprovalMode
@@ -70,19 +70,19 @@ export const AUTH_TYPE_PARITY_WITNESS: Record<`${CoreAuthType}`, true> = {
 
 /** Usage banner shared by both help builders, kept here with the options. */
 export const TOP_LEVEL_USAGE =
-  'Usage: qwen [options] [command]\n\nQwen Code - Launch an interactive CLI, use -p/--prompt for non-interactive mode';
+  'Usage: devcode [options] [command]\n\nDevCode - Launch an interactive CLI, use -p/--prompt for non-interactive mode';
 
 /**
  * The default command's yargs signature, description, and positional.
  *
- * Both help builders register this so `qwen --help` documents the positional
+ * Both help builders register this so `devcode --help` documents the positional
  * prompt form. It is the form `--prompt`'s own deprecation notice points at
  * ("Use the positional prompt instead"), so omitting it from help output left
  * the documented migration target undiscoverable.
  */
 export const DEFAULT_COMMAND = '$0 [query..]';
 
-export const DEFAULT_COMMAND_DESC = 'Launch Qwen Code CLI';
+export const DEFAULT_COMMAND_DESC = 'Launch DevCode CLI';
 
 export const QUERY_POSITIONAL = {
   description:
@@ -180,7 +180,7 @@ export const TOP_LEVEL_DEPRECATED_OPTIONS = {
  * Options registered inside the `$0 [query..]` default command.
  *
  * In the bootstrap `--help` fast-path these are rendered as top-level options
- * for display purposes (since `qwen --help` shows all valid flags together).
+ * for display purposes (since `devcode --help` shows all valid flags together).
  * The real parser nests them inside the positional-query subcommand.
  */
 export const DEFAULT_COMMAND_OPTIONS = {
@@ -456,7 +456,7 @@ export const DEFAULT_COMMAND_OPTIONS = {
 
 /**
  * All non-hidden CLI options for top-level help display.
- * Flattened for the `qwen --help` fast-path.
+ * Flattened for the `devcode --help` fast-path.
  */
 export const TOP_LEVEL_HELP_OPTIONS: ReadonlyArray<readonly [string, Options]> =
   Object.freeze([
