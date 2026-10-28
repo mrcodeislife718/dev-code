@@ -27,11 +27,14 @@ fi
 # Neither the script nor the service adds a coding-request quota.
 # Do not invoke the live runner here: the service starts it once after installation.
 if systemctl --user --quiet is-active devcode-jobflow-continuity.service 2>/dev/null; then
-  echo 'Existing JobFlow factory service is running.' >&2
-  echo 'If this is the SAME project, stop the old runner before enabling the new one:' >&2
-  echo '  systemctl --user disable --now devcode-jobflow-continuity.service' >&2
-  echo 'No changes made to your working projects or existing service.' >&2
-  exit 2
+  OLD_PROJECT="$(systemctl --user show -p WorkingDirectory --value devcode-jobflow-continuity.service 2>/dev/null || true)"
+  if [[ -n "$OLD_PROJECT" && "$OLD_PROJECT" == "$PROJECT" ]]; then
+    echo 'A previous DevCode factory is already running for this SAME project.' >&2
+    echo 'Stop it before switching to the newer continuation engine:' >&2
+    echo '  systemctl --user disable --now devcode-jobflow-continuity.service' >&2
+    echo 'No project files or old service were changed.' >&2
+    exit 2
+  fi
 fi
 for val in "$MODEL" "$ROOT" "$PROJECT" "$(command -v node)"; do
   case "$val" in *%*|*$'\n'*|*'"'*) echo 'Unsupported special characters in model/path.' >&2; exit 1;; esac
