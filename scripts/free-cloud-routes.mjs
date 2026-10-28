@@ -65,7 +65,9 @@ export function buildCloudRoutes(env, openrouterModels = []) {
 
 export function chooseCloudRoute(routes, state, now = Date.now()) {
   if (!routes.length) return null;
-  const allowed = routes.filter((r) => Number(state.cloudCooldowns?.[r.id] || 0) <= now);
+  const allowed = routes.filter((r) =>
+    Number(state.cloudCooldowns?.[r.provider] || 0) <= now &&
+    Number(state.cloudCooldowns?.[r.id] || 0) <= now);
   if (!allowed.length) return null;
   const previous = allowed.findIndex((r) => r.id === state.cloudPreviousRoute);
   return allowed[(previous + 1) % allowed.length];
