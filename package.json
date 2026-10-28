@@ -134,7 +134,9 @@
     "check:core-subpath-exports": "node scripts/check-core-subpath-exports.mjs",
     "check:serve-fast-path-bundle": "node scripts/clean-package-build-artifacts.js && npm run build -- --cli-only && cross-env DEV=true npm run bundle && node scripts/check-serve-fast-path-bundle.js",
     "clean": "node scripts/clean.js",
-    "pre-commit": "node scripts/pre-commit.js"
+    "pre-commit": "node scripts/pre-commit.js",
+    "jobflow:factory": "node scripts/jobflow-factory.mjs",
+    "test:jobflow-factory": "node --test scripts/jobflow-factory.test.mjs"
   },
   "overrides": {
     "brace-expansion@1": "1.1.21",
