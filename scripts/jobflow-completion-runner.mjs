@@ -199,6 +199,26 @@ async function main() {
       const found = await response.json();
       const models = Array.isArray(found.data) ? found.data.map((x) => x.id) : [];
       if (models.length && !models.includes(model)) throw new Error('The local model server does not list ' + model + '. Available: ' + models.join(', '));
+      // The model-list endpoint does NOT prove coding tool support.
+      const probe = await fetch(new URL('chat/completions', endpoint.endsWith('/') ? endpoint : endpoint + '/'), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', authorization: 'Bearer local-only' },
+        body: JSON.stringify({
+          model, stream: false,
+          messages: [{ role: 'user', content: 'Call the marker_check function with value factory-ready. Do not answer in text.' }],
+          tools: [{ type: 'function', function: {
+            name: 'marker_check', description: 'Harmless local tool-call capability check',
+            parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] }
+          } }],
+          tool_choice: 'auto', max_tokens: 192
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!probe.ok) throw new Error('Tool-call probe returned HTTP ' + probe.status);
+      const completion = await probe.json();
+      const calls = completion?.choices?.[0]?.message?.tool_calls;
+      if (!Array.isArray(calls) || !calls.some((call) => call.function?.name === 'marker_check'))
+        throw new Error('Local model responded without calling tools. Fix Qwen3/DevCode tool calling before running the factory.');
     } catch (error) {
       throw new Error('Local model connection check failed: ' + error.message);
     }
