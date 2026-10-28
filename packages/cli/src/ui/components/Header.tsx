@@ -57,12 +57,12 @@ interface HeaderProps {
   /**
    * Width-aware override for the logo column. Each tier is a sanitized
    * ASCII string; the renderer picks `large` when it fits, then `small`,
-   * then falls through to the default Qwen logo. Either tier may be
+   * then falls through to the default DevCode logo. Either tier may be
    * omitted: a missing tier simply skips that step.
    */
   customAsciiArt?: { small?: string; large?: string };
   /**
-   * Sanitized replacement for the bold ">_ Qwen Code" title in the info
+   * Sanitized replacement for the bold ">_ DevCode" title in the info
    * panel. The version suffix is always appended. When undefined or empty
    * the default title is used; the leading `>_` glyph is part of the
    * default brand and is dropped when a custom title is set.
@@ -112,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
   // Two distinct fallback paths:
   //   - User supplied a custom tier and at least one tier fits → render that.
   //   - User supplied custom art but neither tier fits → hide the logo column.
-  //     Falling back to the bundled QWEN logo here would silently undo a
+  //     Falling back to the bundled DevCode logo here would silently undo a
   //     white-label deployment on narrow terminals.
   //   - User supplied no custom art → fall through to `shortAsciiLogo` and let
   //     the existing width gate decide whether to show or hide it.
@@ -209,10 +209,10 @@ export const Header: React.FC<HeaderProps> = ({
         width={showLogo ? availableInfoPanelWidth : undefined}
       >
         {/* Title line: customBannerTitle (already sanitized) or the default
-            ">_ Qwen Code" brand. Version suffix is always appended. */}
+            ">_ DevCode" brand. Version suffix is always appended. */}
         <Text>
           <Text bold color={theme.text.accent}>
-            {customBannerTitle ? customBannerTitle : '>_ Qwen Code'}
+            {customBannerTitle ? customBannerTitle : '>_ DevCode'}
           </Text>
           <Text color={theme.text.secondary}> ({versionLabel})</Text>
         </Text>
