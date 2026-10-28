@@ -22,6 +22,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, openSyn
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
+import { homedir } from 'node:os';
 
 const devcode = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const project = resolve(process.env.DEVCODE_PROJECT_DIR || process.cwd());
@@ -29,6 +30,8 @@ const memory = join(project, '.devcode-factory');
 const lockPath = join(memory, 'runner.lock');
 const statePath = join(memory, 'state.json');
 const historyPath = join(memory, 'history.jsonl');
+const sharedHome = resolve(process.env.DEVCODE_HOME || join(homedir(), '.devcode'));
+const workerLockPath = join(sharedHome, 'engineering-worker.lock');
 const check = process.argv.includes('--check');
 const once = process.argv.includes('--once');
 const model = process.env.OPENAI_MODEL || '';
@@ -66,6 +69,7 @@ function pause(ms) { return new Promise((ok) => setTimeout(ok, ms)); }
 function backoff(streak) { return Math.min(maxDelay, delay * 2 ** Math.min(7, Math.max(0, streak - 1))); }
 function gitStatus() { return exec('git', ['status', '--porcelain', '--untracked-files=normal']); }
 function hashWork() {
+  const commit = exec('git', ['rev-parse', 'HEAD']);
   const tracked = exec('git', ['diff', '--no-ext-diff', '--binary', 'HEAD']);
   const extras = exec('git', ['ls-files', '--others', '--exclude-standard'])
     .split('\n').filter(Boolean)
@@ -74,7 +78,7 @@ function hashWork() {
       try { const st = statSync(join(project, f)); return [f, st.size, st.mtimeMs]; }
       catch { return [f, 'missing']; }
     });
-  return createHash('sha256').update(JSON.stringify([tracked, extras])).digest('hex');
+  return createHash('sha256').update(JSON.stringify([commit, tracked, extras])).digest('hex');
 }
 function file(name) { return join(memory, name); }
 function read(name) { return readFileSync(file(name), 'utf8'); }
@@ -102,6 +106,10 @@ function writeIndex(state) {
     'Git branch: ' + state.branch,
     'Completed coding rounds: ' + state.rounds,
     'Last outcome: ' + (state.last?.exit ?? 'not started'),
+    ...(state.active ? [
+      'RECOVERY: previous work was interrupted before the last checkpoint.',
+      'Inspect actual project changes and tests before repeating the unfinished task.'
+    ] : []),
     '',
     'Read in this order:',
     '1. .devcode-factory/mission.md (what the project must achieve)',
@@ -141,6 +149,53 @@ function acquire() {
   writeFileSync(fd, JSON.stringify({ pid: process.pid, project, bootId, started: new Date().toISOString() }));
   closeSync(fd);
 }
+// Only one local 30B coding session at once across all projects. The other
+// projects wait, keeping their place. This prevents accidental RAM overload.
+async function reserveWorker() {
+  mkdirSync(sharedHome, { recursive: true, mode: 0o700 });
+  while (running) {
+    try {
+      const fd = openSync(workerLockPath, 'wx', 0o600);
+      writeFileSync(fd, JSON.stringify({ pid: process.pid, bootId, project }));
+      closeSync(fd);
+      return true;
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+    }
+    try {
+      const owner = JSON.parse(readFileSync(workerLockPath, 'utf8'));
+      if (!Number.isSafeInteger(owner.pid) || owner.pid < 1) {
+        throw Error('Shared DevCode worker lock is invalid; do not overwrite it.');
+      }
+      if (owner.bootId && bootId && owner.bootId !== bootId) {
+        unlinkSync(workerLockPath);
+        continue;
+      }
+      try { process.kill(owner.pid, 0); }
+      catch (error) {
+        if (error.code !== 'ESRCH') throw error;
+        unlinkSync(workerLockPath);
+        continue;
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') {
+        if (!(error instanceof SyntaxError)) throw error;
+        throw Error('Shared DevCode worker lock is unreadable; inspect before recovery.');
+      }
+    }
+    await pause(2000);
+  }
+  return false;
+}
+function freeWorker() {
+  try {
+    const owner = JSON.parse(readFileSync(workerLockPath, 'utf8'));
+    if (owner.pid === process.pid && owner.project === project) unlinkSync(workerLockPath);
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.error('Worker lock release needs review: ' + error.message);
+  }
+}
+
 function stop() { running = false; if (active) active.kill('SIGTERM'); }
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
@@ -208,10 +263,17 @@ async function main() {
         continue;
       }
       errors = 0;
+      const gotWorker = await reserveWorker();
+      if (!gotWorker) break;
       const before = hashWork();
+      state.active = { started: new Date().toISOString(), before, branch };
+      atomic(statePath, JSON.stringify(state, null, 2) + '\n');
       writeIndex(state);
       const prompt = [
         'CONTINUE the EXISTING software project. Do not start over.',
+        ...(state.active && state.rounds > 0 ? [
+          'RECOVERY: a previous session was interrupted; inspect its unfinished changes first.'
+        ] : []),
         'FIRST read .devcode-factory/START-HERE.md and mission.md.',
         'Read next-task.md and progress.md and inspect actual code.',
         'Implement exactly the next unfinished meaningful task.',
@@ -222,16 +284,21 @@ async function main() {
         'project records are the continuing memory.',
         'Never push, deploy, destroy existing work, pay providers, or leak secrets.'
       ].join(' ');
-      const result = await spawnRound(bin, [
-        ...prefix,
-        '--auth-type', 'openai',
-        '--model', model, '--fallback-model', model,
-        '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
-        '-p', prompt, '--output-format', 'stream-json'
-      ], url);
+      let result;
+      try {
+        result = await spawnRound(bin, [
+          ...prefix,
+          '--auth-type', 'openai',
+          '--model', model, '--fallback-model', model,
+          '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
+          '-p', prompt, '--output-format', 'stream-json'
+        ], url);
+      } finally {
+        freeWorker();
+      }
       const workChanged = before !== hashWork();
       state = {
-        ...state, rounds: state.rounds + 1, branch,
+        ...state, rounds: state.rounds + 1, branch, active: null,
         stalls: workChanged ? 0 : state.stalls + 1,
         last: {
           at: new Date().toISOString(), exit: result.exit,
