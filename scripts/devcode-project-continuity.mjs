@@ -21,6 +21,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync, statSync, appendFileSync } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { isIP } from 'node:net';
 
 const devcode = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const project = resolve(process.env.DEVCODE_PROJECT_DIR || process.cwd());
@@ -34,6 +35,8 @@ const model = process.env.OPENAI_MODEL || '';
 const base = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1';
 const delay = Number(process.env.DEVCODE_RETRY_MS || 10000);
 const maxDelay = 300000;
+const sessionWallTime = process.env.DEVCODE_SESSION_WALL_TIME || '45m';
+const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 let running = true;
 let active = null;
 
@@ -50,9 +53,9 @@ function exec(command, args) {
 function localAddress(value) {
   const u = new URL(value);
   const h = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  const privateNetwork = h === 'localhost' || h === '::1' || h.startsWith('127.') ||
-    h.startsWith('10.') || h.startsWith('192.168.') ||
-    (/^172\.(1[6-9]|2\d|3[01])\./.test(h));
+  const privateNetwork = h === 'localhost' || h === '::1' ||
+    (isIP(h) === 4 && (h.startsWith('127.') || h.startsWith('10.') ||
+      h.startsWith('192.168.') || (/^172\.(1[6-9]|2\d|3[01])\./.test(h))));
   if (!privateNetwork || !['http:', 'https:'].includes(u.protocol) || u.username || u.password)
     throw Error('This always-on runner requires a private local model address, not a paid provider.');
   if (!u.pathname.endsWith('/v1') && !u.pathname.endsWith('/v1/'))
@@ -125,7 +128,9 @@ function acquire() {
     try { owner = JSON.parse(readFileSync(lockPath, 'utf8')); }
     catch { throw Error('Runner lock is unreadable; review it before attempting recovery.'); }
     if (!Number.isSafeInteger(owner.pid) || owner.pid <= 0) throw Error('Runner lock is invalid.');
-    try { process.kill(owner.pid, 0); }
+    if (owner.bootId && bootId && owner.bootId !== bootId) {
+      unlinkSync(lockPath);
+    } else try { process.kill(owner.pid, 0); }
     catch (error) {
       if (error.code === 'ESRCH') unlinkSync(lockPath);
       else throw error;
@@ -133,7 +138,7 @@ function acquire() {
     if (existsSync(lockPath)) throw Error('Another factory is already running in this project.');
   }
   const fd = openSync(lockPath, 'wx', 0o600);
-  writeFileSync(fd, JSON.stringify({ pid: process.pid, project, started: new Date().toISOString() }));
+  writeFileSync(fd, JSON.stringify({ pid: process.pid, project, bootId, started: new Date().toISOString() }));
   closeSync(fd);
 }
 function stop() { running = false; if (active) active.kill('SIGTERM'); }
@@ -221,7 +226,7 @@ async function main() {
         ...prefix,
         '--auth-type', 'openai',
         '--model', model, '--fallback-model', model,
-        '--approval-mode', 'auto',
+        '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
         '-p', prompt, '--output-format', 'stream-json'
       ], url);
       const workChanged = before !== hashWork();
