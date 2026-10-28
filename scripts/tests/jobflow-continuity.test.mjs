@@ -6,6 +6,10 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, chmodSync 
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  PREFERRED_FREE_MODELS, isEligibleModel, chooseFreeModel,
+  cloudFailureType, readFreeRemaining, readFreeCatalog,
+} from '../openrouter-free-capacity.mjs';
 
 const runner = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'jobflow-completion-runner.mjs');
 const model = 'local-30b:test';
@@ -100,4 +104,28 @@ test('a temporary local model outage is retried', async (t) => {
   assert.equal(result.code, 0, result.output);
   assert.ok(f.getRequests() >= 2, result.output);
   assert.match(result.output, /temporarily unavailable/);
+});
+
+test('cloud catalog only accepts zero-priced text models that support tools', async () => {
+  const candidate = (id) => ({
+    id, pricing: { prompt: '0', completion: '0' },
+    architecture: { output_modalities: ['text'] },
+    supported_parameters: ['tools']
+  });
+  const entries = PREFERRED_FREE_MODELS.map(candidate);
+  const paid = { ...candidate(PREFERRED_FREE_MODELS[0]), pricing: { prompt: '0.001', completion: '0' } };
+  const missingTools = { ...candidate(PREFERRED_FREE_MODELS[1]), supported_parameters: [] };
+  assert.equal(isEligibleModel(paid), false);
+  assert.equal(isEligibleModel(missingTools), false);
+  const fakeFetch = async () => ({ ok: true, json: async () => ({ data: [...entries, paid, missingTools] }) });
+  const actual = await readFreeCatalog(fakeFetch);
+  assert.deepEqual(actual, PREFERRED_FREE_MODELS);
+  assert.equal(chooseFreeModel(actual, actual[0]), actual[1]);
+});
+
+test('shared quota parser and 429 handling return safely to local', () => {
+  assert.equal(readFreeRemaining({ data: { free_model_daily_requests: { remaining: 9 } } }), 9);
+  assert.equal(readFreeRemaining({ data: {} }), null);
+  assert.equal(cloudFailureType('HTTP 429: rate limit exceeded', 1), 'quota');
+  assert.equal(cloudFailureType('HTTP 402: payment required', 1), 'billing');
 });
