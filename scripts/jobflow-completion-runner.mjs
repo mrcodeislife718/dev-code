@@ -164,8 +164,15 @@ async function main() {
       const prompt = initial
         ? 'Implement JobFlow now. Read .jobflow-factory/contract.md and its progress records. Preserve Groups 1–4, complete Group 5, then all remaining requirements. Write real code and tests in this run, not merely a plan. Do not claim a live production launch.'
         : 'Continue implementing the next unfinished JobFlow requirement. Read .jobflow-factory/contract.md and progress records, make real changes, run tests and record evidence. Do not only summarize.';
-      const args = [...argsPrefix, ...(initial ? [] : ['--resume', state.sessionId]), '-p', prompt, '--output-format', 'stream-json'];
-      const result = await launch(executable, args, { ...process.env, OPENAI_BASE_URL: endpoint, OPENAI_MODEL: model });
+      // Explicitly select the user's local OpenAI-compatible model, overriding saved Copilot settings.
+      // Do not permit the saved cloud fallback model to be chosen.
+      const args = [
+        ...argsPrefix,
+        ...(initial ? [] : ['--resume', state.sessionId]),
+        '--auth-type', 'openai', '--model', model, '--fallback-model', model,
+        '-p', prompt, '--output-format', 'stream-json',
+      ];
+      const result = await launch(executable, args, { ...process.env, OPENAI_BASE_URL: endpoint, OPENAI_MODEL: model, OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'local-only' });
       const sessionId = sessionFrom(result.stdout) || state.sessionId;
       const changed = snapshot() !== before;
       state = { cycle: state.cycle + 1, branch, model, endpoint, sessionId, noProgress: changed ? 0 : state.noProgress + 1, lastResult: { started, ended: new Date().toISOString(), exitCode: result.exitCode, changed } };
