@@ -8,7 +8,8 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync, appendFileSync, statSync, unlinkSync, renameSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { OPENROUTER_ROOT, readFreeCatalog, freeQuotaRemaining, chooseFreeModel, cloudFailureType } from './openrouter-free-capacity.mjs';
+import { readFreeCatalog, freeQuotaRemaining, cloudFailureType } from './openrouter-free-capacity.mjs';
+import { buildCloudRoutes, chooseCloudRoute, cloudCooldownMs } from './free-cloud-routes.mjs';
 
 const devcodeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const jobflow = resolve(process.env.JOBFLOW_DIR || process.cwd());
@@ -24,12 +25,14 @@ const stallLimit = Number(process.env.JOBFLOW_STALL_LIMIT ?? '3');
 const maxBackoff = Number(process.env.JOBFLOW_MAX_BACKOFF_MS ?? '300000');
 const sessionCycles = Number(process.env.JOBFLOW_SESSION_CYCLES ?? '1');
 const sessionWallTime = process.env.JOBFLOW_SESSION_WALL_TIME ?? '45m';
-const cloudKey = process.env.OPENROUTER_API_KEY ?? '';
-const cloudEnabled = process.env.DEVCODE_CLOUD_FALLBACK === '1' && cloudKey.length > 15;
+const cloudEnabled = process.env.DEVCODE_CLOUD_FALLBACK === '1';
 const cloudCheck = process.argv.includes('--cloud-check');
-// One DevCode round can make MANY cloud requests. Keep cloud rounds low
-// (default: 2/day), while OpenRouter enforces its own stricter request caps.
-const maxCloudRoundsDaily = Number(process.env.DEVCODE_MAX_FREE_CLOUD_ROUNDS_PER_DAY ?? '2');
+// Deliberately NO invented limit on cloud rounds or coding actions.
+// Providers enforce their real free-account limits; local coding remains unlimited by quota.
+const cloudKeys = [
+  process.env.OPENROUTER_API_KEY, process.env.GROQ_API_KEY,
+  process.env.GEMINI_API_KEY, process.env.CLOUDFLARE_API_TOKEN
+].filter((v) => typeof v === 'string' && v.length > 0);
 const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 
 function fail(message) { console.error('JobFlow runner: ' + message); process.exitCode = 1; }
@@ -129,32 +132,33 @@ async function localModelHealthy(endpoint, model) {
 function backoff(streak) {
   return Math.min(maxBackoff, delay * 2 ** Math.min(7, Math.max(0, streak - 1)));
 }
-function tomorrowUTC() {
-  const d = new Date();
-  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 5);
+function sanitizeLog(value) {
+  let result = tail(value);
+  for (const key of cloudKeys) result = result.split(key).join('[REDACTED_CLOUD_KEY]');
+  return result;
 }
-function sanitizeLog(v) {
-  const t = tail(v);
-  return cloudKey ? t.split(cloudKey).join('[REDACTED_OPENROUTER_KEY]') : t;
-}
-async function safeCloudCandidate(state, models) {
-  const today = new Date().toISOString().slice(0, 10);
-  if (state.cloudDay !== today) { state.cloudDay = today; state.cloudRounds = 0; }
-  if (!cloudEnabled || !models.length || state.cloudUntil > Date.now()) return null;
-  if (state.cloudRounds >= maxCloudRoundsDaily) return null;
-  try {
-    const remaining = await freeQuotaRemaining(cloudKey);
-    if (remaining !== null && remaining <= 2) {
-      state.cloudUntil = tomorrowUTC();
-      console.error('Shared OpenRouter free quota depleted; returning to local.');
-      return null;
+async function cloudCandidates(state, openrouterModels) {
+  const configured = buildCloudRoutes(process.env, openrouterModels);
+  if (!configured.length) return [];
+  const selected = [];
+  // OpenRouter shares its free account allowance across every model.
+  // We check its account allowance once, not once for every model.
+  if (configured.some((route) => route.provider === 'openrouter')) {
+    try {
+      const remaining = await freeQuotaRemaining(process.env.OPENROUTER_API_KEY);
+      if (remaining !== null && remaining <= 0) {
+        state.cloudCooldowns ??= {};
+        state.cloudCooldowns.openrouter = Date.now() + 90000;
+        console.error('OpenRouter free allowance exhausted for now; other cloud routes remain eligible.');
+      }
+    } catch (error) {
+      state.cloudCooldowns ??= {};
+      state.cloudCooldowns.openrouter = Date.now() + 90000;
+      console.error('OpenRouter allowance unknown; other services can still work: ' + error.message);
     }
-    return chooseFreeModel(models, state.cloudPreviousModel);
-  } catch (error) {
-    console.error('OpenRouter quota check unavailable; no cloud calls: ' + error.message);
-    state.cloudUntil = Date.now() + 300000;
-    return null;
   }
+  for (const route of configured) selected.push(route);
+  return selected;
 }
 const CONTRACT = [
   '# JobFlow: the exact product DevCode must finish',
@@ -182,7 +186,7 @@ const CONTRACT = [
   '2. Keep requirements.md, progress.md, evidence.md and blockers.md current. Every requirement must say not started, working, verified or blocked, with specific proof for verified.',
   '3. Implement the next unfinished requirement. Run its tests, repair failures, and rerun checks. Do actual work every round; do not only produce plans.',
   '4. Save progress before ending each work session. Do not invent test results or claim a live service was tested without using it.',
-  '5. Use only local inference or user-enabled verified $0 OpenRouter models. Do not push, publish, erase work, spend money, leak secrets, or deploy without authorization.',
+  '5. Use only local inference, verified $0 OpenRouter models, or explicitly confirmed free-tier Groq/Google/Cloudflare accounts. No paid model use, pushes, leaks, erasures, spending or deployment without authorization.',
   '6. If an external account, credential, phone number or permission is missing, write the exact blocker and complete other independent work.',
   '7. Only describe the entire JobFlow product as production-ready after independent real-world acceptance. Code generation alone never qualifies.',
 ].join('\n') + '\n';
@@ -223,7 +227,7 @@ async function main() {
   const endpoint = modelAddress(process.env.OPENAI_BASE_URL || (process.env.OLLAMA_HOST ? new URL('/v1', process.env.OLLAMA_HOST).href : undefined));
   const model = process.env.OPENAI_MODEL;
   if (!model) throw new Error('Set OPENAI_MODEL to the name of your existing local 30B model');
-  if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1 || !Number.isSafeInteger(maxBackoff) || maxBackoff < delay || !Number.isSafeInteger(sessionCycles) || sessionCycles < 1 || !Number.isSafeInteger(maxCloudRoundsDaily) || maxCloudRoundsDaily < 0 || maxCloudRoundsDaily > 20) {
+  if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1 || !Number.isSafeInteger(maxBackoff) || maxBackoff < delay || !Number.isSafeInteger(sessionCycles) || sessionCycles < 1) {
     throw new Error('Invalid cycle, delay or stall setting');
   }
   const binary = process.env.DEVCODE_BIN;
@@ -232,12 +236,19 @@ async function main() {
   if (!binary && !existsSync(argsPrefix[0])) throw new Error('DevCode checkout not found. Set DEVCODE_BIN to your existing DevCode command.');
   console.log('JobFlow: ' + jobflow + '\nBranch: ' + branch + '\nDevCode: ' + (binary || 'this DevCode checkout') + '\nAI: ' + model + ' at ' + endpoint);
   if (cloudCheck) {
-    if (!cloudEnabled) throw new Error('Cloud check requires DEVCODE_CLOUD_FALLBACK=1 and OPENROUTER_API_KEY.');
-    const models = await readFreeCatalog();
-    const remaining = await freeQuotaRemaining(cloudKey);
-    console.log('Verified FREE tool-capable models: ' + models.join(', '));
-    console.log('Account free quota remaining: ' + (remaining === null ? 'unknown' : remaining));
-    if (!models.length) throw new Error('No eligible $0 models currently available.');
+    if (!cloudEnabled) {
+      console.log('Cloud backups disabled. Local Ollama is still the primary engine.');
+      return;
+    }
+    let models = [];
+    if (process.env.OPENROUTER_API_KEY) {
+      try { models = await readFreeCatalog(); }
+      catch (error) { console.error('OpenRouter catalog unavailable: ' + error.message); }
+    }
+    const routes = buildCloudRoutes(process.env, models);
+    console.log('Eligible cloud backups (' + routes.length + '):');
+    for (const route of routes) console.log('  ' + route.provider + ' / ' + route.model);
+    console.log('All provider account plans must be free. No inference calls were made.');
     return;
   }
   if (check) {
@@ -305,27 +316,22 @@ async function main() {
     let cloudCatalogAt = 0;
     while (!stopped && (maxCycles === 0 || rounds < maxCycles)) {
       const localReady = await localModelHealthy(endpoint, model);
-      if (cloudEnabled && (cloudCatalogAt === 0 || Date.now() - cloudCatalogAt >= 1200000)) {
+      if (cloudEnabled && process.env.OPENROUTER_API_KEY &&
+        (cloudCatalogAt === 0 || Date.now() - cloudCatalogAt >= 1200000)) {
         cloudCatalogAt = Date.now();
         try { cloudCatalog = await readFreeCatalog(); }
         catch (error) { cloudCatalog = []; console.error('Free catalog cannot be verified: ' + error.message); }
       }
-      let route = { model, endpoint, apiKey: 'local-only', source: 'local' };
+      let route = { id: 'local', provider: 'local', model, endpoint, apiKey: 'local-only' };
       if (!localReady || (state.localFailureStreak || 0) >= 2) {
-        const cloudModel = await safeCloudCandidate(state, cloudCatalog);
-        if (cloudModel) {
-          route = { model: cloudModel, endpoint: OPENROUTER_ROOT, apiKey: cloudKey, source: 'openrouter-free' };
-          state.cloudPreviousModel = cloudModel;
+        const routes = await cloudCandidates(state, cloudCatalog);
+        const backup = chooseCloudRoute(routes, state);
+        if (backup) {
+          route = backup;
+          state.cloudPreviousRoute = backup.id;
         }
       }
-      if (route.source === 'openrouter-free') {
-        // Persist the allowance reservation BEFORE running a cloud session.
-        // A crash must not reset the counter and retry free requests forever.
-        state.cloudDay = new Date().toISOString().slice(0, 10);
-        state.cloudRounds = (state.cloudRounds || 0) + 1;
-        saveAtomic(stateFile, JSON.stringify({ ...state, branch, model, endpoint }, null, 2) + '\n');
-      }
-      if (!localReady && route.source === 'local') {
+      if (!localReady && route.provider === 'local') {
         offlineStreak++;
         const pause = backoff(offlineStreak);
         console.error('Ollama offline and cloud unavailable; preserving checkpoints and retrying in ' + pause / 1000 + 's.');
@@ -335,7 +341,7 @@ async function main() {
       offlineStreak = 0;
       const started = new Date().toISOString();
       const before = snapshot();
-      const resume = route.source === 'local' && sessionCycles > 1 && state.sessionId &&
+      const resume = route.provider === 'local' && sessionCycles > 1 && state.sessionId &&
         state.cycle % sessionCycles !== 0 && state.lastResult?.exitCode === 0 && state.noProgress === 0;
       writeContinuity({ ...state, branch, model: route.model });
       const prompt = [
@@ -345,7 +351,7 @@ async function main() {
         'Inspect real code and tests. Preserve Groups 1–4; complete Group 5 and remaining requirements.',
         'Make actual source changes, test them, repair failures, and update the evidence ledgers.',
         'Write the precise next action in progress.md before ending. Sessions are intentionally rotated.',
-        'Only local Ollama or user-authorized verified zero-priced OpenRouter models may be used.',
+        'Only local Ollama, verified $0 OpenRouter models, or user-confirmed FREE provider accounts may be used.',
         'Never read or send .env, secrets, API keys, credentials, or private customer data to cloud models.',
         'No paid actions, destructive git commands, pushes or live deployments.',
         ...(state.noProgress >= stallLimit ? [
@@ -359,7 +365,6 @@ async function main() {
         ...(resume ? ['--resume', state.sessionId] : []),
         '--auth-type', 'openai', '--model', route.model, '--fallback-model', route.model,
         '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
-        ...(route.source === 'openrouter-free' ? ['--max-tool-calls', '8'] : []),
         '-p', prompt, '--output-format', 'stream-json',
       ];
       const result = await launch(executable, args, {
@@ -368,22 +373,28 @@ async function main() {
       });
       const sessionId = sessionFrom(result.stdout) || (resume ? state.sessionId : null);
       const changed = snapshot() !== before;
-      const failure = route.source === 'openrouter-free'
-        ? cloudFailureType(result.stderr + '\n' + result.stdout, result.exitCode) : null;
+      const diagnostic = result.stderr + '\n' + result.stdout;
+      const failure = route.provider !== 'local'
+        ? cloudFailureType(diagnostic, result.exitCode) : null;
+      state.cloudCooldowns ??= {};
+      if (failure) {
+        const until = cloudCooldownMs(failure, diagnostic);
+        // Each account has its own quota. OpenRouter's models share one account.
+        const previous = Number(state.cloudCooldowns[route.provider] || 0);
+        state.cloudCooldowns[route.provider] = Math.max(previous, until);
+      }
       rounds++;
       state = {
         ...state,
         cycle: state.cycle + 1, branch, model, endpoint,
-        sessionId: route.source === 'local' ? sessionId : null,
-        localFailureStreak: route.source === 'local'
+        sessionId: route.provider === 'local' ? sessionId : null,
+        localFailureStreak: route.provider === 'local'
           ? (result.exitCode !== 0 || !changed ? (state.localFailureStreak || 0) + 1 : 0) : 0,
-        cloudUntil: ['quota','auth','billing'].includes(failure)
-          ? tomorrowUTC() : failure ? Date.now() + 30000 : (state.cloudUntil || 0),
         noProgress: changed ? 0 : state.noProgress + 1,
         lastOutputTail: sanitizeLog(result.stdout), lastErrorTail: sanitizeLog(result.stderr),
         lastResult: { started, ended: new Date().toISOString(),
-          exitCode: result.exitCode, changed, route: route.source,
-          cloudModel: route.source === 'openrouter-free' ? route.model : null, failure }
+          exitCode: result.exitCode, changed, route: route.provider,
+          cloudModel: route.provider !== 'local' ? route.model : null, failure }
       };
       appendFileSync(logFile, JSON.stringify({
         ...state.lastResult, cycle: state.cycle, sessionId,
@@ -392,7 +403,7 @@ async function main() {
       saveAtomic(stateFile, JSON.stringify(state, null, 2) + '\n');
       writeContinuity(state);
       console.log('Round ' + state.cycle + ': ' + (changed ? 'changes found' : 'no changes') +
-        ', exit ' + result.exitCode + ', route ' + route.source + ', model ' + route.model);
+        ', exit ' + result.exitCode + ', route ' + route.provider + ', model ' + route.model);
       if (state.noProgress >= stallLimit)
         console.error('Recovery mode: rotating context, diagnosing failures, backing off without discarding progress.');
       if (stopped) break;
