@@ -52,6 +52,7 @@ test('refuses Copilot authentication and metered remote fallbacks', () => {
     modelProviders: { openai: [{ id: 'devcode-coder:8k', baseUrl: 'http://127.0.0.1:1234/v1' }] },
   }, {}), /not a local/);
   assert.throws(() => resolveLocalModel({
+    security: { auth: { selectedType: 'openai' } },
     model: { name: 'paid-coder' },
     modelProviders: { openai: [{ id: 'paid-coder', baseUrl: 'https://example.com/v1' }] },
   }, {}), /not verified/);
