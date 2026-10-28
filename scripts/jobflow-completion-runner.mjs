@@ -8,6 +8,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync, appendFileSync, statSync, unlinkSync, renameSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { OPENROUTER_ROOT, readFreeCatalog, freeQuotaRemaining, chooseFreeModel, cloudFailureType } from './openrouter-free-capacity.mjs';
 
 const devcodeRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const jobflow = resolve(process.env.JOBFLOW_DIR || process.cwd());
@@ -23,6 +24,9 @@ const stallLimit = Number(process.env.JOBFLOW_STALL_LIMIT ?? '3');
 const maxBackoff = Number(process.env.JOBFLOW_MAX_BACKOFF_MS ?? '300000');
 const sessionCycles = Number(process.env.JOBFLOW_SESSION_CYCLES ?? '1');
 const sessionWallTime = process.env.JOBFLOW_SESSION_WALL_TIME ?? '45m';
+const cloudKey = process.env.OPENROUTER_API_KEY ?? '';
+const cloudEnabled = process.env.DEVCODE_CLOUD_FALLBACK === '1' && cloudKey.length > 15;
+const cloudCheck = process.argv.includes('--cloud-check');
 const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 
 function fail(message) { console.error('JobFlow runner: ' + message); process.exitCode = 1; }
@@ -122,6 +126,30 @@ async function localModelHealthy(endpoint, model) {
 function backoff(streak) {
   return Math.min(maxBackoff, delay * 2 ** Math.min(7, Math.max(0, streak - 1)));
 }
+function tomorrowUTC() {
+  const d = new Date();
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1, 0, 5);
+}
+function sanitizeLog(v) {
+  const t = tail(v);
+  return cloudKey ? t.split(cloudKey).join('[REDACTED_OPENROUTER_KEY]') : t;
+}
+async function safeCloudCandidate(state, models) {
+  if (!cloudEnabled || !models.length || state.cloudUntil > Date.now()) return null;
+  try {
+    const remaining = await freeQuotaRemaining(cloudKey);
+    if (remaining !== null && remaining <= 2) {
+      state.cloudUntil = tomorrowUTC();
+      console.error('Shared OpenRouter free quota depleted; returning to local.');
+      return null;
+    }
+    return chooseFreeModel(models, state.cloudPreviousModel);
+  } catch (error) {
+    console.error('OpenRouter quota check unavailable; no cloud calls: ' + error.message);
+    state.cloudUntil = Date.now() + 300000;
+    return null;
+  }
+}
 const CONTRACT = [
   '# JobFlow: the exact product DevCode must finish',
   'JobFlow lets appointment-based businesses operate with a 24/7/365 AI receptionist and operations system. A customer contacting a closed business must get an answer, a real available appointment, a saved booking, a confirmation and a business calendar update without waiting for staff. This is the product promise, not an optional example.',
@@ -148,7 +176,7 @@ const CONTRACT = [
   '2. Keep requirements.md, progress.md, evidence.md and blockers.md current. Every requirement must say not started, working, verified or blocked, with specific proof for verified.',
   '3. Implement the next unfinished requirement. Run its tests, repair failures, and rerun checks. Do actual work every round; do not only produce plans.',
   '4. Save progress before ending each work session. Do not invent test results or claim a live service was tested without using it.',
-  '5. Do not use Copilot or any metered AI provider, do not change branches, push, publish, erase work, spend money or deploy to production without authorization.',
+  '5. Use only local inference or user-enabled verified $0 OpenRouter models. Do not push, publish, erase work, spend money, leak secrets, or deploy without authorization.',
   '6. If an external account, credential, phone number or permission is missing, write the exact blocker and complete other independent work.',
   '7. Only describe the entire JobFlow product as production-ready after independent real-world acceptance. Code generation alone never qualifies.',
 ].join('\n') + '\n';
@@ -197,6 +225,15 @@ async function main() {
   const argsPrefix = binary ? [] : [join(devcodeRoot, 'scripts', 'dev.js')];
   if (!binary && !existsSync(argsPrefix[0])) throw new Error('DevCode checkout not found. Set DEVCODE_BIN to your existing DevCode command.');
   console.log('JobFlow: ' + jobflow + '\nBranch: ' + branch + '\nDevCode: ' + (binary || 'this DevCode checkout') + '\nAI: ' + model + ' at ' + endpoint);
+  if (cloudCheck) {
+    if (!cloudEnabled) throw new Error('Cloud check requires DEVCODE_CLOUD_FALLBACK=1 and OPENROUTER_API_KEY.');
+    const models = await readFreeCatalog();
+    const remaining = await freeQuotaRemaining(cloudKey);
+    console.log('Verified FREE tool-capable models: ' + models.join(', '));
+    console.log('Account free quota remaining: ' + (remaining === null ? 'unknown' : remaining));
+    if (!models.length) throw new Error('No eligible $0 models currently available.');
+    return;
+  }
   if (check) {
     try {
       const response = await fetch(new URL(endpoint.replace(/\/$/, '') + '/models'), { signal: AbortSignal.timeout(7000) });
@@ -258,20 +295,36 @@ async function main() {
     }
     let rounds = 0;
     let offlineStreak = 0;
+    let cloudCatalog = [];
+    let cloudCatalogAt = 0;
     while (!stopped && (maxCycles === 0 || rounds < maxCycles)) {
-      if (!await localModelHealthy(endpoint, model)) {
+      const localReady = await localModelHealthy(endpoint, model);
+      if (cloudEnabled && (cloudCatalogAt === 0 || Date.now() - cloudCatalogAt >= 1200000)) {
+        cloudCatalogAt = Date.now();
+        try { cloudCatalog = await readFreeCatalog(); }
+        catch (error) { cloudCatalog = []; console.error('Free catalog cannot be verified: ' + error.message); }
+      }
+      let route = { model, endpoint, apiKey: 'local-only', source: 'local' };
+      if (!localReady || (state.localFailureStreak || 0) >= 2) {
+        const cloudModel = await safeCloudCandidate(state, cloudCatalog);
+        if (cloudModel) {
+          route = { model: cloudModel, endpoint: OPENROUTER_ROOT, apiKey: cloudKey, source: 'openrouter-free' };
+          state.cloudPreviousModel = cloudModel;
+        }
+      }
+      if (!localReady && route.source === 'local') {
         offlineStreak++;
         const pause = backoff(offlineStreak);
-        console.error('Local Ollama model temporarily unavailable; retry in ' + pause / 1000 + 's. State retained.');
+        console.error('Ollama offline and cloud unavailable; preserving checkpoints and retrying in ' + pause / 1000 + 's.');
         await sleep(pause);
         continue;
       }
       offlineStreak = 0;
       const started = new Date().toISOString();
       const before = snapshot();
-      const resume = sessionCycles > 1 && state.sessionId &&
+      const resume = route.source === 'local' && sessionCycles > 1 && state.sessionId &&
         state.cycle % sessionCycles !== 0 && state.lastResult?.exitCode === 0 && state.noProgress === 0;
-      writeContinuity({ ...state, branch, model });
+      writeContinuity({ ...state, branch, model: route.model });
       const prompt = [
         'Implement the NEXT unfinished JobFlow requirement in real code now.',
         'Read .jobflow-factory/continuity.md and .jobflow-factory/contract.md first.',
@@ -279,7 +332,9 @@ async function main() {
         'Inspect real code and tests. Preserve Groups 1–4; complete Group 5 and remaining requirements.',
         'Make actual source changes, test them, repair failures, and update the evidence ledgers.',
         'Write the precise next action in progress.md before ending. Sessions are intentionally rotated.',
-        'No cloud providers, paid actions, destructive git commands, pushes or live deployments.',
+        'Only local Ollama or user-authorized verified zero-priced OpenRouter models may be used.',
+        'Never read or send .env, secrets, API keys, credentials, or private customer data to cloud models.',
+        'No paid actions, destructive git commands, pushes or live deployments.',
         ...(state.noProgress >= stallLimit ? [
           'RECOVERY: previous rounds made no worktree or ledger progress.',
           'Diagnose previous output in continuity.md/runs.jsonl, select a smaller meaningful task',
@@ -289,23 +344,33 @@ async function main() {
       const args = [
         ...argsPrefix,
         ...(resume ? ['--resume', state.sessionId] : []),
-        '--auth-type', 'openai', '--model', model, '--fallback-model', model,
+        '--auth-type', 'openai', '--model', route.model, '--fallback-model', route.model,
         '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
+        ...(route.source === 'openrouter-free' ? ['--max-tool-calls', '8'] : []),
         '-p', prompt, '--output-format', 'stream-json',
       ];
       const result = await launch(executable, args, {
-        ...process.env, OPENAI_BASE_URL: endpoint, OPENAI_MODEL: model,
-        OPENAI_API_KEY: 'local-only'
+        ...process.env, OPENAI_BASE_URL: route.endpoint, OPENAI_MODEL: route.model,
+        OPENAI_API_KEY: route.apiKey
       });
       const sessionId = sessionFrom(result.stdout) || (resume ? state.sessionId : null);
       const changed = snapshot() !== before;
+      const failure = route.source === 'openrouter-free'
+        ? cloudFailureType(result.stderr + '\n' + result.stdout, result.exitCode) : null;
       rounds++;
       state = {
-        cycle: state.cycle + 1, branch, model, endpoint, sessionId,
+        ...state,
+        cycle: state.cycle + 1, branch, model, endpoint,
+        sessionId: route.source === 'local' ? sessionId : null,
+        localFailureStreak: route.source === 'local'
+          ? (result.exitCode !== 0 || !changed ? (state.localFailureStreak || 0) + 1 : 0) : 0,
+        cloudUntil: ['quota','auth','billing'].includes(failure)
+          ? tomorrowUTC() : failure ? Date.now() + 30000 : (state.cloudUntil || 0),
         noProgress: changed ? 0 : state.noProgress + 1,
-        lastOutputTail: tail(result.stdout), lastErrorTail: tail(result.stderr, 1200),
+        lastOutputTail: sanitizeLog(result.stdout), lastErrorTail: sanitizeLog(result.stderr),
         lastResult: { started, ended: new Date().toISOString(),
-          exitCode: result.exitCode, changed }
+          exitCode: result.exitCode, changed, route: route.source,
+          cloudModel: route.source === 'openrouter-free' ? route.model : null, failure }
       };
       appendFileSync(logFile, JSON.stringify({
         ...state.lastResult, cycle: state.cycle, sessionId,
@@ -314,7 +379,7 @@ async function main() {
       saveAtomic(stateFile, JSON.stringify(state, null, 2) + '\n');
       writeContinuity(state);
       console.log('Round ' + state.cycle + ': ' + (changed ? 'changes found' : 'no changes') +
-        ', exit ' + result.exitCode + ', next round uses ' + (sessionCycles === 1 ? 'new context' : 'bounded context'));
+        ', exit ' + result.exitCode + ', route ' + route.source + ', model ' + route.model);
       if (state.noProgress >= stallLimit)
         console.error('Recovery mode: rotating context, diagnosing failures, backing off without discarding progress.');
       if (stopped) break;
