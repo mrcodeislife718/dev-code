@@ -210,7 +210,7 @@ async function main() {
             name: 'marker_check', description: 'Harmless local tool-call capability check',
             parameters: { type: 'object', properties: { value: { type: 'string' } }, required: ['value'] }
           } }],
-          tool_choice: 'auto', max_tokens: 192
+          max_tokens: 192
         }),
         signal: AbortSignal.timeout(120000),
       });
