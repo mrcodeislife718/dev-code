@@ -14,6 +14,12 @@ SERVICE=devcode-jobflow-continuity.service
 
 [[ -d "$JOBFLOW_DIR/.git" || -f "$JOBFLOW_DIR/.git" ]] || { echo "ERROR: Run from your existing JobFlow Git root, or pass the JobFlow directory." >&2; exit 2; }
 [[ -f "$DEVROOT/scripts/jobflow-completion-runner.mjs" ]] || { echo "ERROR: DevCode runner not found." >&2; exit 2; }
+BRANCH="$(git -C "$JOBFLOW_DIR" branch --show-current)"
+if [[ "$BRANCH" != "jobflow-completion" && "${JOBFLOW_ALLOW_BRANCH:-}" != "$BRANCH" ]]; then
+  echo "ERROR: Existing JobFlow branch is $BRANCH; runner expects jobflow-completion." >&2
+  echo "Preserved your branch and files. Set JOBFLOW_ALLOW_BRANCH explicitly only if this is your intended working branch." >&2
+  exit 2
+fi
 [[ "$BASE_URL" == "http://127.0.0.1:11434/v1" || "$BASE_URL" == "http://localhost:11434/v1" ]] || {
   echo "ERROR: This installer only accepts your local Ollama endpoint." >&2; exit 2;
 }
@@ -42,6 +48,11 @@ PY
 )"
 fi
 ollama show "$MODEL" >/dev/null || { echo "ERROR: Existing local model is not available: $MODEL" >&2; exit 2; }
+echo "Checking actual local model function calling before enabling continuous work..."
+(cd "$JOBFLOW_DIR" && JOBFLOW_DIR="$JOBFLOW_DIR" OPENAI_BASE_URL="$BASE_URL" OPENAI_MODEL="$MODEL" node "$DEVROOT/scripts/jobflow-completion-runner.mjs" --check) || {
+  echo "ERROR: Local model tool calling is not verified. Service not started." >&2
+  exit 2
+}
 case "$MODEL" in *$'\n'*|*'"'*|*' '* ) echo "ERROR: Unexpected model ID format." >&2; exit 2;; esac
 # Percent specifiers and quotes are not safe unescaped in systemd unit paths.
 case "$DEVROOT:$JOBFLOW_DIR:$NODE" in *%*|*'"'*|*$'\n'* ) echo "ERROR: Unsupported special characters in local paths." >&2; exit 2;; esac
@@ -63,6 +74,7 @@ Environment="JOBFLOW_DIR=$JOBFLOW_DIR"
 Environment="OPENAI_BASE_URL=$BASE_URL"
 Environment="OPENAI_MODEL=$MODEL"
 Environment="OPENAI_API_KEY=local-only"
+Environment="JOBFLOW_ALLOW_BRANCH=${JOBFLOW_ALLOW_BRANCH:-}"
 Environment="PATH=$PATH"
 ExecStart="$NODE" "$DEVROOT/scripts/jobflow-completion-runner.mjs"
 Restart=always
