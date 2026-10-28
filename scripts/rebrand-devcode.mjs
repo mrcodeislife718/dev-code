@@ -19,7 +19,7 @@ const allowed = new Set([
   '.json', '.jsonc', '.yml', '.yaml', '.html', '.css', '.scss',
   '.sh', '.xml', '.toml', '.properties', '.vue', '.svelte', '.py',
 ]);
-const skip = /^(?:docs\/archive\/|node_modules\/|vendor\/|dist\/|build\/|coverage\/|\.git\/)/;
+const skip = /^(?:docs\/archive\/|packages\/cli\/src\/i18n\/locales\/|node_modules\/|vendor\/|dist\/|build\/|coverage\/|\.git\/)/;
 const skipFile = /(?:^|\/)(?:LICENSE|NOTICE|COPYING|pnpm-lock\.yaml|package-lock\.json|yarn\.lock)$/i;
 
 function cmd(args) {
@@ -33,7 +33,6 @@ function transform(text) {
   // imports, author credits, or old setting paths: they are real identifiers.
   return text
     .replace(/Qwen Code/g, 'DevCode')
-    .replace(/QwenCode/g, 'DevCode')
     .replace(/QWEN CODE/g, 'DEVCODE')
     .replace(/Qwen CLI/g, 'DevCode CLI')
     .replace(/Qwen-code CLI/g, 'DevCode CLI');
@@ -57,7 +56,10 @@ function run() {
     if (Buffer.from(old, 'utf8').compare(oldBuffer) !== 0) continue;
     const next = transform(old);
     if (next === old) continue;
-    const count = (old.match(/Qwen Code|QwenCode|QWEN CODE|Qwen CLI|Qwen-code CLI/g) || []).length;
+    // Never rewrite copyright/license attribution or original authorship.
+    if (/Copyright (?:20\\d\\d )?(?:Qwen|Alibaba)/i.test(old) &&
+        !/Qwen Code/.test(old.replace(/Copyright[^\\n]*/g, ''))) continue;
+    const count = (old.match(/Qwen Code|QWEN CODE|Qwen CLI|Qwen-code CLI/g) || []).length;
     instances += count;
     if (dirty.has(relative) || staged.has(relative)) {
       skipped++;
