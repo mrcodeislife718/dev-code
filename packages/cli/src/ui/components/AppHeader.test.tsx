@@ -117,12 +117,12 @@ describe('<AppHeader />', () => {
     );
     // When screen reader is enabled, header is not rendered
     expect(lastFrame()).not.toContain('/projects/qwen-code');
-    expect(lastFrame()).not.toContain('Qwen Code');
+    expect(lastFrame()).not.toContain('DevCode');
   });
 
   it('shows the header with all info when banner is visible', () => {
     const { lastFrame } = renderWithProviders(createMockUIState());
-    expect(lastFrame()).toContain('>_ Qwen Code');
+    expect(lastFrame()).toContain('>_ DevCode');
     expect(lastFrame()).toContain('Gemini Pro');
     expect(lastFrame()).toContain('/projects/qwen-code');
   });
@@ -132,7 +132,7 @@ describe('<AppHeader />', () => {
       createMockUIState(),
       createSettings({ hideTips: false, hideBanner: true }),
     );
-    expect(lastFrame()).not.toContain('>_ Qwen Code');
+    expect(lastFrame()).not.toContain('>_ DevCode');
     expect(lastFrame()).not.toContain('██╔═══██╗');
   });
 
@@ -162,7 +162,7 @@ describe('<AppHeader />', () => {
     );
     const frame = lastFrame() ?? '';
     expect(frame).toContain('Acme CLI');
-    expect(frame).not.toContain('>_ Qwen Code');
+    expect(frame).not.toContain('>_ DevCode');
     expect(frame).toContain('ACME');
     // Default Qwen logo must NOT bleed through when the user supplied art.
     expect(frame).not.toContain('██╔═══██╗');
