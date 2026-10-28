@@ -17,11 +17,11 @@ const catalog = config.modelProviders ?? (config.modelProviders = {});
 const models = catalog.openai ?? (catalog.openai = []);
 if (!Array.isArray(models)) throw new Error('Expected modelProviders.openai to be an array. Nothing changed.');
 const sizes = {
-  'thinkingmachines/inkling-small:free': 131072,
-  'recursive/flint-v1.0:free': 131072,
-  'cohere/north-mini-code:free': 131072,
-  'nvidia/nemotron-3-ultra-550b-a55b:free': 131072,
-  'google/gemma-4-31b-it:free': 65536
+  'thinkingmachines/inkling-small:free': 1048576,
+  'recursive/flint-v1.0:free': 262144,
+  'thinkingmachines/inkling:free': 1048576,
+  'nvidia/nemotron-3-ultra-550b-a55b:free': 1000000,
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free': 256000
 };
 for (const id of PREFERRED_FREE_MODELS) {
   const existing = models.find((m) => m && m.id === id);
