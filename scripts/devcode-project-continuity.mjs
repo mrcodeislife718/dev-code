@@ -265,14 +265,16 @@ async function main() {
       errors = 0;
       const gotWorker = await reserveWorker();
       if (!gotWorker) break;
+      const interrupted = Boolean(state.active);
       const before = hashWork();
       state.active = { started: new Date().toISOString(), before, branch };
       atomic(statePath, JSON.stringify(state, null, 2) + '\n');
-      writeIndex(state);
+      // Show recovery only when the PREVIOUS process left work unfinished.
+      writeIndex({ ...state, active: interrupted ? state.active : null });
       const prompt = [
         'CONTINUE the EXISTING software project. Do not start over.',
-        ...(state.active && state.rounds > 0 ? [
-          'RECOVERY: a previous session was interrupted; inspect its unfinished changes first.'
+        ...(interrupted ? [
+          'RECOVERY: previous work was interrupted; inspect existing unfinished changes first.'
         ] : []),
         'FIRST read .devcode-factory/START-HERE.md and mission.md.',
         'Read next-task.md and progress.md and inspect actual code.',
