@@ -74,6 +74,8 @@ Environment="JOBFLOW_DIR=$JOBFLOW_DIR"
 Environment="OPENAI_BASE_URL=$BASE_URL"
 Environment="OPENAI_MODEL=$MODEL"
 Environment="OPENAI_API_KEY=local-only"
+Environment="DEVCODE_CLOUD_FALLBACK=1"
+EnvironmentFile=-%h/.config/devcode/openrouter.env
 Environment="JOBFLOW_ALLOW_BRANCH=${JOBFLOW_ALLOW_BRANCH:-}"
 Environment="PATH=$PATH"
 ExecStart="$NODE" "$DEVROOT/scripts/jobflow-completion-runner.mjs"
