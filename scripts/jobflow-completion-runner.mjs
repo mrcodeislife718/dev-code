@@ -119,7 +119,7 @@ async function main() {
   if (branch !== 'jobflow-completion' && process.env.JOBFLOW_ALLOW_BRANCH !== branch) {
     throw new Error('On branch ' + branch + '. Refusing to change branches or overwrite earlier work.');
   }
-  const endpoint = modelAddress(process.env.OPENAI_BASE_URL);
+  const endpoint = modelAddress(process.env.OPENAI_BASE_URL || (process.env.OLLAMA_HOST ? new URL('/v1', process.env.OLLAMA_HOST).href : undefined));
   const model = process.env.OPENAI_MODEL;
   if (!model) throw new Error('Set OPENAI_MODEL to the name of your existing local 30B model');
   if (!Number.isSafeInteger(delay) || delay < 1000 || !Number.isSafeInteger(maxCycles) || maxCycles < 0 || !Number.isSafeInteger(stallLimit) || stallLimit < 1) {
@@ -130,7 +130,19 @@ async function main() {
   const argsPrefix = binary ? [] : [join(devcodeRoot, 'scripts', 'dev.js')];
   if (!binary && !existsSync(argsPrefix[0])) throw new Error('DevCode checkout not found. Set DEVCODE_BIN to your existing DevCode command.');
   console.log('JobFlow: ' + jobflow + '\nBranch: ' + branch + '\nDevCode: ' + (binary || 'this DevCode checkout') + '\nAI: ' + model + ' at ' + endpoint);
-  if (check) { console.log('Safety checks passed. No work started.'); return; }
+  if (check) {
+    try {
+      const response = await fetch(new URL(endpoint.replace(/\/$/, '') + '/models'), { signal: AbortSignal.timeout(7000) });
+      if (!response.ok) throw new Error('The local model server returned HTTP ' + response.status);
+      const found = await response.json();
+      const models = Array.isArray(found.data) ? found.data.map((x) => x.id) : [];
+      if (models.length && !models.includes(model)) throw new Error('The local model server does not list ' + model + '. Available: ' + models.join(', '));
+    } catch (error) {
+      throw new Error('Local model connection check failed: ' + error.message);
+    }
+    console.log('Local model connection and project safety checks passed. No files changed.');
+    return;
+  }
 
   mkdirSync(workspace, { recursive: true });
   let lock;
@@ -169,7 +181,7 @@ async function main() {
       const args = [
         ...argsPrefix,
         ...(initial ? [] : ['--resume', state.sessionId]),
-        '--auth-type', 'openai', '--model', model, '--fallback-model', model,
+        '--auth-type', 'openai', '--model', model, '--fallback-model', model, '--approval-mode', 'auto',
         '-p', prompt, '--output-format', 'stream-json',
       ];
       const result = await launch(executable, args, { ...process.env, OPENAI_BASE_URL: endpoint, OPENAI_MODEL: model, OPENAI_API_KEY: process.env.OPENAI_API_KEY || 'local-only' });
