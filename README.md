@@ -1,194 +1,104 @@
-<div align="center">
+# DevCode
 
-[![npm version](https://img.shields.io/npm/v/@qwen-code/qwen-code.svg)](https://www.npmjs.com/package/@qwen-code/qwen-code)
-[![License](https://img.shields.io/github/license/QwenLM/qwen-code.svg)](./LICENSE)
-[![Node.js Version](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org/)
-[![Downloads](https://img.shields.io/npm/dm/@qwen-code/qwen-code.svg)](https://www.npmjs.com/package/@qwen-code/qwen-code)
+**DevCode is your existing autonomous engineering factory.**
 
-<a href="https://trendshift.io/repositories/15287" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15287" alt="QwenLM%2Fqwen-code | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+It works with the code you already have. It is designed to continue projects,
+not start them again when a conversation ends or a computer restarts.
 
-**The open-source AI coding agent for your terminal, editor, desktop, browser, and chat.**
+## What DevCode does
 
-<a href="https://qwenlm.github.io/qwen-code-docs/zh/users/overview">中文</a> |
-<a href="https://qwenlm.github.io/qwen-code-docs/de/users/overview">Deutsch</a> |
-<a href="https://qwenlm.github.io/qwen-code-docs/fr/users/overview">français</a> |
-<a href="https://qwenlm.github.io/qwen-code-docs/ja/users/overview">日本語</a> |
-<a href="https://qwenlm.github.io/qwen-code-docs/ru/users/overview">Русский</a> |
-<a href="https://qwenlm.github.io/qwen-code-docs/pt-BR/users/overview">Português (Brasil)</a> |
-<a href="https://qwenlm.github.io/qwen-code-docs/ko/users/overview">한국어</a>
+- Inspect and improve existing software.
+- Build new features, edit files, run checks, and repair mistakes.
+- Keep a separate work record for every project.
+- Start a fresh AI conversation when needed and continue from saved records.
+- Use your local 30B model without cloud provider monthly request quotas.
+- Optionally use approved free cloud backups for extra capacity.
+- Preserve existing code and decisions. Do not erase work to reset a task.
+- Require real verification before describing a product as finished.
 
-</div>
-
-![Qwen Code in the terminal, desktop app, browser, editor, and chat, with VS Code, Zed, JetBrains, Telegram, DingTalk, WeChat, and Feishu integrations](https://img.alicdn.com/imgextra/i1/O1CN01DXWdF8BDUdD3XPhl_!!6000000001721-2-tps-1743-902.png)
-
-## Why Qwen Code?
-
-- **Agentic out of the box** — Auto-Memory, Auto-Skills, SubAgents, Agent Teams, and MCP. Dynamic workflows, zero setup.
-- **Open-source, inside and out** — The framework and the Qwen models are open-source. They evolve together. No vendor lock-in.
-- **Multi-protocol** — Supports OpenAI, Anthropic, Gemini, and Qwen APIs. Any third-party provider or local model (Ollama / vLLM). Switch at runtime.
-- **Beyond the terminal** — IDE plugins, Desktop app, Web UI, SDKs, and chat integrations (Telegram / DingTalk / WeChat / Feishu).
-
-> [!TIP]
-> Qwen Code is actively iterating on itself — using its own agent and models to file issues, submit PRs, review code, and run tests. Powered by the community, driven by AI.
-
-## Installation
-
-**Linux / macOS:**
+## Main command
 
 ```bash
-curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash
+npm run devcode
 ```
 
-**Windows:**
+For a convenient `devcode` terminal command on the ThinkPad, use the setup
+script below. This changes the user-facing launcher but does not replace the
+existing source or erase provider settings.
 
-```powershell
-irm https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.ps1 | iex
-```
+## Continue an existing project
 
-> Restart your terminal after installation to ensure environment variables take effect.
-
-<details>
-<summary>NPM / Homebrew</summary>
-
-**NPM** (requires [Node.js 22+](https://nodejs.org/)):
+Run these commands from your **current DevCode checkout**:
 
 ```bash
-npm install -g @qwen-code/qwen-code@latest
+node --test scripts/tests/devcode-project-continuity.test.mjs
+bash scripts/setup-devcode-on-thinkpad.sh "$HOME/Projects/jobflow"
 ```
 
-**Homebrew** (macOS / Linux):
+The example above continues JobFlow, provided that directory actually exists.
+For any other existing project, replace the last path with that project's
+actual directory. The setup never creates a fresh product to replace one you
+already built.
+
+Each project stores its own continuation records inside
+`.devcode-factory/`, including `mission.md`, `progress.md`,
+`next-task.md`, `decisions.md`, `evidence.md`, and `blockers.md`.
+Those records are not erased when the model starts a new conversation.
+
+To check a project without changing code:
 
 ```bash
-brew install qwen-code
+export DEVCODE_PROJECT_DIR="$HOME/Projects/jobflow"
+export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export OPENAI_MODEL="YOUR_EXISTING_LOCAL_MODEL_NAME"
+node scripts/devcode-project-continuity.mjs --check
 ```
 
-</details>
+## Project instructions
 
-## Quick Start
+- `DEVCODE.md` is the primary instructions file for DevCode.
+- Older instruction files are still read so previously saved projects keep their
+  instructions, decisions, and progress.
+- Do not rename actual model IDs, internal package names, or credential paths
+  without verifying that all dependent software has been updated.
+- The new name must not break existing tools or settings.
 
-Open a terminal in your project and start Qwen Code:
+## Rename remaining visible text safely
+
+See what can be renamed without changing files:
 
 ```bash
-cd /path/to/your-project
-qwen
+node scripts/rebrand-devcode.mjs
 ```
 
-Inside the session, run `/auth` to configure your provider and API key. Then try:
+Make those display-name changes only after reviewing them:
 
-```text
-Explain this repository and show me where to start.
+```bash
+node scripts/rebrand-devcode.mjs --apply
+git diff --check
 ```
 
-See the [Authentication Guide](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/auth/) and [Settings Reference](https://qwenlm.github.io/qwen-code-docs/en/users/configuration/settings/) for detailed setup.
+This tool does not rename critical internal library identifiers, model names,
+old credential folders, or third-party authorship. Those are functional
+connections, not the name of your DevCode product.
 
-<details>
-<summary>See the terminal interface</summary>
+## Keeping work going
 
-![Qwen Code terminal interface](https://img.alicdn.com/imgextra/i2/O1CN01K0nwj41RM1Il8kB0t_!!6000000002096-2-tps-1544-1060.png)
+Your ThinkPad can run the DevCode project continuation service. The service
+restarts the runner after unexpected exits; the runner uses saved project memory
+and independently retries local model outages.
 
-</details>
+No computer can have literally infinite working context, memory, electricity
+or storage. The system provides *continuity* through saved knowledge and fresh
+model sessions, without introducing a monthly provider request limit for local
+inference.
 
-## How to Use Qwen Code
+The code is available for testing in this branch. Running on your actual
+ThinkPad and completing a project still require live verification.
 
-Choose the interface that fits your workflow:
+## Credits and history
 
-| Interface    | Get started                                                                                                                                                                                                                                                                                                                                                                                               |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Terminal** | Run `qwen` in your project — see [Quick Start](#quick-start).                                                                                                                                                                                                                                                                                                                                             |
-| **Desktop**  | [Download Qwen Code Desktop](https://github.com/QwenLM/qwen-code/releases/tag/desktop-latest) for macOS, Windows, and Linux.                                                                                                                                                                                                                                                                              |
-| **Web**      | Run `qwen serve --open` to open the [Web UI](https://qwenlm.github.io/qwen-code-docs/en/users/qwen-serve/) in your browser. _(experimental)_                                                                                                                                                                                                                                                              |
-| **Editor**   | Set up [VS Code](https://qwenlm.github.io/qwen-code-docs/en/users/integration-vscode/), [Zed](https://qwenlm.github.io/qwen-code-docs/en/users/integration-zed/), or [JetBrains](https://qwenlm.github.io/qwen-code-docs/en/users/integration-jetbrains/).                                                                                                                                                |
-| **Chat**     | Connect [Telegram](https://qwenlm.github.io/qwen-code-docs/en/users/features/channels/telegram/), [DingTalk](https://qwenlm.github.io/qwen-code-docs/en/users/features/channels/dingtalk/), [WeChat](https://qwenlm.github.io/qwen-code-docs/en/users/features/channels/weixin/), or [Feishu](https://qwenlm.github.io/qwen-code-docs/en/users/features/channels/feishu/), then run `qwen channel start`. |
-
-For automation and custom integrations:
-
-- **Headless** — Run `qwen -p "..."` in scripts, CI/CD, or batch jobs.
-- **SDKs** — Build with [TypeScript](./packages/sdk-typescript/README.md), [Python](./packages/sdk-python/README.md), or [Java](./packages/sdk-java/qwencode/README.md).
-- **Daemon** — Run `qwen serve` to connect clients over HTTP + SSE (ACP). _(experimental)_ [Daemon guide](https://qwenlm.github.io/qwen-code-docs/en/users/qwen-serve/).
-- **Computer Use** — Set up [native MCP tools](./packages/cua-driver/README.md#agent-integration) or [Node REPL + SDK](./packages/node-repl/README.md#usage) in Qwen Code, Claude Code, or Codex.
-
-<details>
-<summary>SDK example (Python)</summary>
-
-```python
-import asyncio
-
-from qwen_code_sdk import is_sdk_result_message, query
-
-
-async def main() -> None:
-    result = query(
-        "Summarize the repository layout.",
-        {
-            "cwd": "/path/to/project",
-            "path_to_qwen_executable": "qwen",
-        },
-    )
-
-    async for message in result:
-        if is_sdk_result_message(message):
-            print(message["result"])
-
-
-asyncio.run(main())
-```
-
-</details>
-
-## Capabilities
-
-If you know Claude Code, you already know Qwen Code — and then some. We've put significant effort into [bringing Qwen Code to feature parity with Claude Code](https://github.com/wenshao/codeagents/blob/main/docs/comparison/qwen-code-improvement-report.md), improving both breadth and reliability across the board.
-
-| Feature                                                            | Qwen Code | Claude Code |
-| ------------------------------------------------------------------ | :-------: | :---------: |
-| SubAgents, Agent Teams, Dynamic Workflows                          |     ✓     |      ✓      |
-| Auto-Memory, Auto-Skills, Hooks                                    |     ✓     |      ✓      |
-| Built-in Skills (/review, /batch, /loop, /bugfix…)                 |     ✓     |      ✓      |
-| MCP, Plan Mode, LSP Integration                                    |     ✓     |      ✓      |
-| Auto Mode, Sandbox, Git Worktrees                                  |     ✓     |      ✓      |
-| Computer Use (desktop automation)                                  |     ✓     |      ✓      |
-| IDE Plugins (VS Code / JetBrains / Zed)                            |     ✓     |      ✓      |
-| SDK                                                                |     ✓     |      ✓      |
-| Headless Mode, Session Management                                  |     ✓     |      ✓      |
-| Open-source — model and framework                                  |     ✓     |      —      |
-| Multi-protocol (OpenAI / Anthropic / Gemini / Qwen + any provider) |     ✓     |      —      |
-| Agent Arena (multi-model head-to-head on same task)                |     ✓     |      —      |
-| Daemon Mode — `qwen serve` (multi-client shared agent)             |     ✓     |      —      |
-| IM Channels (Telegram / DingTalk / WeChat / Feishu)                |     ✓     |      —      |
-
-## Qwen Code Evaluation
-
-On **SWE-bench Verified**, seven Qwen Code versions scored **76.40%–77.80%** on average using the same Qwen 3.7 Max model (500 tasks, three trials per version).
-
-![Average SWE-bench Verified scores by Qwen Code version: 0.0.14, 77.80%; 0.1.0, 76.73%; 0.5.0, 76.60%; 0.10.0, 76.47%; 0.15.0, 77.67%; 0.19.0, 76.40%; 0.22.0, 77.33%.](./.github/assets/qwen-code-avg-score-trend.svg)
-
-[Full results and evaluation configuration →](./docs/evaluation.md)
-
-## Ecosystem
-
-- [**Qwen Code Desktop**](https://github.com/QwenLM/qwen-code/releases/tag/desktop-latest) — Official desktop app for macOS, Windows, and Linux
-- [**AionUi**](https://github.com/iOfficeAI/AionUi) — A modern GUI for command-line AI tools including Qwen Code
-- [**Gemini CLI Desktop**](https://github.com/Piebald-AI/gemini-cli-desktop) — A cross-platform desktop/web/mobile UI for Qwen Code
-- [**qwen-audio-agent**](https://github.com/QwenAudio/qwen-audio-agent) — Realtime full-duplex voice frontend for Qwen Code over ACP — talk hands-free with barge-in and a local wake word
-
-- [**🦞 Qwen Code Claw**](https://github.com/openclaw/acpx) — Let other agents (Claude, Codex, etc.) delegate coding tasks to Qwen Code via ACP. Paste this prompt into your agent:
-
-```text
-Use Qwen Code as a coding agent. First, fetch and read this skill reference:
-https://raw.githubusercontent.com/QwenLM/qwen-code/refs/heads/main/.qwen/skills/qwen-code-claw/SKILL.md
-Then follow the instructions inside to install, authenticate, and use Qwen Code via acpx for all coding tasks.
-```
-
-- [**Aliyun Model Studio CLI**](https://github.com/modelstudioai/cli) — Official CLI for Aliyun's AI platform (`bailian-cli`). Extends Qwen Code with image/video generation, knowledge retrieval, app orchestration, and model deployment
-
-## Privacy
-
-See the [Terms of Service and Privacy Notice](./docs/users/support/tos-privacy.md), including [Chrome extension and Browser Use data handling](./docs/users/support/tos-privacy.md#chrome-extension-and-browser-use).
-
-## Contributing
-
-Contributions are welcome! See [CONTRIBUTING.md](./CONTRIBUTING.md) for guidelines.
-
-## Acknowledgments
-
-This project was originally based on [Google Gemini CLI](https://github.com/google-gemini/gemini-cli) v0.8.2. We gratefully acknowledge the Gemini CLI team's excellent work. Starting from Qwen Code v0.1, we stopped syncing with upstream and began independent development as a multi-protocol, multi-platform agent framework with deep integrations for Qwen models and beyond.
+DevCode is an independently named fork with historical upstream dependencies.
+The repository retains appropriate third-party notices, upstream license
+information, and compatibility with existing integrations. Renaming the
+product does not change the identity or ownership of third-party technology.
