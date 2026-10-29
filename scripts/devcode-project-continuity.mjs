@@ -266,7 +266,9 @@ function spawnRound(binary, args, url) {
     const modelEnv = { ...process.env };
     for (const key of Object.keys(modelEnv)) {
       if (/^DEVCODE_(ALLOW_PRODUCTION_DEPLOY|DEPLOY_COMMAND|VERIFY_COMMAND|TEST_COMMAND|BUILD_COMMAND|TYPECHECK_COMMAND|LINT_COMMAND)$/.test(key) ||
-          /^(VERCEL_TOKEN|CLOUDFLARE_API_TOKEN|GITHUB_TOKEN|STRIPE_SECRET_KEY)$/.test(key)) delete modelEnv[key];
+          /(?:SECRET|TOKEN|PASSWORD|PRIVATE_KEY|CREDENTIAL|API_KEY|ACCESS_KEY|AUTHORIZATION|DEPLOY_KEY)/i.test(key) ||
+          /^(?:DATABASE_URL|POSTGRES_URL|REDIS_URL|MYSQL_URL|MONGODB_URI)$/.test(key))
+        delete modelEnv[key];
     }
     const child = spawn(binary, args, {
       cwd: project, detached: true, env: {
@@ -361,9 +363,11 @@ function recordRelease(state, update) {
 function safeLog(message) {
   let safe = String(message);
   for (const [name, value] of Object.entries(process.env)) {
-    if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(name) &&
-        typeof value === 'string' && value.length >= 8)
-      safe = safe.split(value).join('[PRIVATE]');
+    if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(name) ||
+        (/URL|URI/i.test(name) && /:\/\/[^\s]+@/.test(String(value)))) {
+      if (typeof value === 'string' && value.length >= 8)
+        safe = safe.split(value).join('[PRIVATE]');
+    }
   }
   return safe;
 }
