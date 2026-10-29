@@ -62,8 +62,11 @@ Environment="OPENAI_BASE_URL=http://127.0.0.1:11434/v1"
 Environment="OPENAI_MODEL=$MODEL"
 Environment="OPENAI_API_KEY=local-only"
 Environment="PATH=$PATH"
+# These commands belong to THIS project. Nothing will be deployed without
+# an explicit release target and a live test configured by the owner.
+EnvironmentFile=-%h/.config/devcode/production-$IDENTITY.env
 ExecStart="$(command -v node)" "$ROOT/scripts/devcode-project-continuity.mjs"
-Restart=always
+Restart=on-failure
 RestartSec=15
 KillMode=control-group
 TimeoutStopSec=45
@@ -77,4 +80,7 @@ echo "Project: $PROJECT"
 echo "Service: $SERVICE"
 echo "To follow its work: journalctl --user -u $SERVICE -f"
 echo "Your project code is preserved. Its memory is in $PROJECT/.devcode-factory/"
+echo "Optional production settings file:"
+echo "  $HOME/.config/devcode/production-$IDENTITY.env"
+echo "Deployment happens only when that file explicitly permits it, and tests pass."
 echo "For restart after logout/reboot, also run: sudo loginctl enable-linger \"$USER\""
