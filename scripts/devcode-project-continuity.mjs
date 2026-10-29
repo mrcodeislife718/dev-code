@@ -313,12 +313,41 @@ function ownerCommands() {
   } catch { /* Other languages can use explicitly configured commands. */ }
   const pick = (owner, script) => process.env[owner] ||
     (Object.prototype.hasOwnProperty.call(scripts, script) ? 'npm run ' + script : '');
+  // Support existing projects written in many languages, not just JavaScript.
+  // These are real tooling commands, never pretend production tests or builds.
+  let nativeTest = '', nativeBuild = '';
+  if (existsSync(join(project, 'Cargo.toml'))) {
+    nativeTest = 'cargo test --all-targets';
+    nativeBuild = 'cargo build --release';
+  } else if (existsSync(join(project, 'go.mod'))) {
+    nativeTest = 'go test ./...';
+    nativeBuild = 'go build ./...';
+  } else if (existsSync(join(project, 'gradlew'))) {
+    nativeTest = 'bash ./gradlew test --no-daemon';
+    nativeBuild = 'bash ./gradlew assemble --no-daemon';
+  } else if (existsSync(join(project, 'pom.xml'))) {
+    nativeTest = 'mvn -B test';
+    nativeBuild = 'mvn -B -DskipTests package';
+  } else if (existsSync(join(project, 'Makefile'))) {
+    const make = readFileSync(join(project, 'Makefile'), 'utf8');
+    if (/^test\\s*:/m.test(make)) nativeTest = 'make test';
+    if (/^build\\s*:/m.test(make)) nativeBuild = 'make build';
+  } else if (existsSync(join(project, 'pyproject.toml'))) {
+    if (existsSync(join(project, 'tests'))) nativeTest = 'python3 -m pytest';
+    const pyproject = readFileSync(join(project, 'pyproject.toml'), 'utf8');
+    if (/^\\[build-system\\]/m.test(pyproject)) nativeBuild = 'python3 -m build --wheel';
+  }
+  const meaningful = (script) => {
+    if (!Object.prototype.hasOwnProperty.call(scripts, script)) return '';
+    const value = String(scripts[script]);
+    return /no test specified|no tests yet|not implemented/i.test(value) ? '' : 'npm run ' + script;
+  };
   return {
     checks: [
       ['typecheck', pick('DEVCODE_TYPECHECK_COMMAND', 'typecheck'), false],
       ['lint', pick('DEVCODE_LINT_COMMAND', 'lint'), false],
-      ['test', pick('DEVCODE_TEST_COMMAND', 'test'), true],
-      ['build', pick('DEVCODE_BUILD_COMMAND', 'build'), true],
+      ['test', process.env.DEVCODE_TEST_COMMAND || meaningful('test') || nativeTest, true],
+      ['build', process.env.DEVCODE_BUILD_COMMAND || meaningful('build') || nativeBuild, true],
     ],
     deploy: process.env.DEVCODE_DEPLOY_COMMAND || '',
     verify: process.env.DEVCODE_VERIFY_COMMAND || '',
