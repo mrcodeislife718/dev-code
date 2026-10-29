@@ -332,12 +332,12 @@ function ownerCommands() {
     nativeBuild = 'mvn -B -DskipTests package';
   } else if (existsSync(join(project, 'Makefile'))) {
     const make = readFileSync(join(project, 'Makefile'), 'utf8');
-    if (/^test\\s*:/m.test(make)) nativeTest = 'make test';
-    if (/^build\\s*:/m.test(make)) nativeBuild = 'make build';
+    if (/^test\s*:/m.test(make)) nativeTest = 'make test';
+    if (/^build\s*:/m.test(make)) nativeBuild = 'make build';
   } else if (existsSync(join(project, 'pyproject.toml'))) {
     if (existsSync(join(project, 'tests'))) nativeTest = 'python3 -m pytest';
     const pyproject = readFileSync(join(project, 'pyproject.toml'), 'utf8');
-    if (/^\\[build-system\\]/m.test(pyproject)) nativeBuild = 'python3 -m build --wheel';
+    if (/^\[build-system\]/m.test(pyproject)) nativeBuild = 'python3 -m build --wheel';
   }
   const meaningful = (script) => {
     if (!Object.prototype.hasOwnProperty.call(scripts, script)) return '';
