@@ -45,12 +45,13 @@ async function setup(t, { changes = true, transientOffline = false } = {}) {
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   t.after(() => server.close());
   const url = 'http://127.0.0.1:' + server.address().port + '/v1';
-  async function run(extra = []) {
+  async function run(extra = [], overrides = {}) {
     return new Promise((resolveResult) => {
       const child = spawn(process.execPath, [runner, '--once', ...extra], {
         cwd: root, env: { ...process.env, DEVCODE_BIN: shell,
           DEVCODE_PROJECT_DIR: root, OPENAI_BASE_URL: url,
-          OPENAI_MODEL: 'test-local-model', DEVCODE_RETRY_MS: '1000' },
+          OPENAI_MODEL: 'test-local-model', DEVCODE_RETRY_MS: '1000',
+          DEVCODE_HOME: join(root, '.devcode-home'), ...overrides },
       });
       let output = '';
       child.stdout.on('data', (d) => { output += d; });
@@ -105,4 +106,85 @@ test('a verified dead runner can be recovered without erasing progress', async (
   const r = await f.run();
   assert.equal(r.code, 0, r.output);
   assert.equal(existsSync(join(memory, 'runner.lock')), false);
+});
+
+test('owner-approved production deploy occurs only after real tests and build pass', async (t) => {
+  const f = await setup(t);
+  const first = await f.run();
+  assert.equal(first.code, 0, first.output);
+  const memory = join(f.root, '.devcode-factory');
+  writeFileSync(join(memory, 'next-task.md'), 'STATUS: READY_FOR_PRODUCTION_CHECK\n');
+  const commands = {
+    DEVCODE_ALLOW_PRODUCTION_DEPLOY: '1',
+    DEVCODE_TEST_COMMAND: "printf 'real-tests-pass\\n'",
+    DEVCODE_BUILD_COMMAND: "printf 'real-build-pass\\n'",
+    DEVCODE_DEPLOY_COMMAND: 'printf deployed >> .devcode-factory/deploy-count.txt',
+    DEVCODE_VERIFY_COMMAND: 'test -f .devcode-factory/deploy-count.txt',
+  };
+  const finish = await f.run([], commands);
+  assert.equal(finish.code, 0, finish.output);
+  assert.match(finish.output, /VERIFIED its production deployment/);
+  const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(state.production.status, 'verified-live');
+  assert.ok(state.completed);
+  assert.match(readFileSync(join(memory, 'release-proof.md'), 'utf8'), /Local checks: passed/);
+  const again = await f.run([], commands);
+  assert.equal(again.code, 0, again.output);
+  assert.match(again.output, /already verified live/);
+  assert.equal(readFileSync(join(memory, 'deploy-count.txt'), 'utf8'), 'deployed');
+});
+
+test('a failing check creates a repair task and never deploys', async (t) => {
+  const f = await setup(t);
+  assert.equal((await f.run()).code, 0);
+  const memory = join(f.root, '.devcode-factory');
+  writeFileSync(join(memory, 'next-task.md'), 'STATUS: READY_FOR_PRODUCTION_CHECK\n');
+  const result = await f.run([], {
+    DEVCODE_ALLOW_PRODUCTION_DEPLOY: '1',
+    DEVCODE_TEST_COMMAND: 'exit 13',
+    DEVCODE_BUILD_COMMAND: 'true',
+    DEVCODE_DEPLOY_COMMAND: 'touch .devcode-factory/should-not-deploy',
+    DEVCODE_VERIFY_COMMAND: 'true'
+  });
+  assert.equal(result.code, 0, result.output);
+  assert.equal(existsSync(join(memory, 'should-not-deploy')), false);
+  assert.match(readFileSync(join(memory, 'next-task.md'), 'utf8'), /WORK_IN_PROGRESS/);
+  assert.match(readFileSync(join(memory, 'production-checks.log'), 'utf8'), /test exit 13/);
+});
+
+test('production is not deployed without explicit permission and real verification', async (t) => {
+  const f = await setup(t);
+  assert.equal((await f.run()).code, 0);
+  const memory = join(f.root, '.devcode-factory');
+  writeFileSync(join(memory, 'next-task.md'), 'STATUS: READY_FOR_PRODUCTION_CHECK\n');
+  const result = await f.run([], {
+    DEVCODE_TEST_COMMAND: 'true', DEVCODE_BUILD_COMMAND: 'true',
+    DEVCODE_DEPLOY_COMMAND: 'touch .devcode-factory/should-not-deploy'
+  });
+  assert.equal(result.code, 0, result.output);
+  assert.equal(existsSync(join(memory, 'should-not-deploy')), false);
+  const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(state.production.status, 'ready-to-deploy');
+});
+
+test('failed live verification cannot repeatedly deploy unchanged code', async (t) => {
+  const f = await setup(t);
+  assert.equal((await f.run()).code, 0);
+  const memory = join(f.root, '.devcode-factory');
+  writeFileSync(join(memory, 'next-task.md'), 'STATUS: READY_FOR_PRODUCTION_CHECK\n');
+  const commands = {
+    DEVCODE_ALLOW_PRODUCTION_DEPLOY: '1',
+    DEVCODE_TEST_COMMAND: 'true',
+    DEVCODE_BUILD_COMMAND: 'true',
+    DEVCODE_DEPLOY_COMMAND: 'echo deployed >> .devcode-factory/deploy-count.txt',
+    DEVCODE_VERIFY_COMMAND: 'exit 9'
+  };
+  const first = await f.run([], commands);
+  assert.equal(first.code, 0, first.output);
+  assert.equal(readFileSync(join(memory, 'deploy-count.txt'), 'utf8').trim(), 'deployed');
+  const second = await f.run([], commands);
+  assert.equal(second.code, 0, second.output);
+  assert.equal(readFileSync(join(memory, 'deploy-count.txt'), 'utf8').trim(), 'deployed');
+  const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(state.production.status, 'verification-failed');
 });
