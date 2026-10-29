@@ -265,7 +265,9 @@ async function healthy(url) {
 function spawnRound(binary, args, url) {
   return new Promise((done) => {
     let out = '', err = '', resolved = false, expired = false;
-    let killTimer;
+    let killTimer, stdoutBytes = 0, stderrBytes = 0, toolEvents = 0;
+    let pending = '', lastEvent = 'waiting for model output', lastEventLoggedAt = 0;
+    const began = Date.now();
     // The model can edit code; it must not inherit owner-only production
     // approvals, deploy commands or credentials from the supervisor.
     const modelEnv = { ...process.env };
@@ -281,29 +283,81 @@ function spawnRound(binary, args, url) {
         OPENAI_MODEL: model, OPENAI_API_KEY: 'local-only'
       }, stdio: ['ignore', 'pipe', 'pipe']
     });
+    console.log('DevCode coding round started: worker PID ' + (child.pid || 'unavailable') +
+      ', project ' + project + ', model ' + model + '. Existing work is preserved.');
+    // Only log safe event metadata, never model responses, tool arguments,
+    // project secrets or full command output. The worker's actual work is
+    // recorded in the project's Git changes and .devcode-factory checkpoints.
+    const observeEvents = (text) => {
+      pending = (pending + text).slice(-16384);
+      const lastNewline = pending.lastIndexOf('\n');
+      if (lastNewline < 0) return;
+      const lines = pending.slice(0, lastNewline).split('\n');
+      pending = pending.slice(lastNewline + 1);
+      for (const line of lines.slice(-30)) {
+        try {
+          const event = JSON.parse(line);
+          const type = String(event.type || event.event || '');
+          if (!/^[a-zA-Z0-9_.:-]{1,60}$/.test(type)) continue;
+          lastEvent = type;
+          if (/tool|action|command/i.test(type)) {
+            toolEvents++;
+            if (Date.now() - lastEventLoggedAt >= 5000) {
+              console.log('DevCode worker activity: ' + type + ' event (details kept private).');
+              lastEventLoggedAt = Date.now();
+            }
+          }
+        } catch { /* Streaming chunks need not be complete JSON events. */ }
+      }
+    };
+    child.stdout.on('data', (part) => {
+      stdoutBytes += part.length;
+      const text = part.toString();
+      out = (out + text).slice(-120000);
+      observeEvents(text);
+    });
+    child.stderr.on('data', (part) => {
+      stderrBytes += part.length;
+      err = (err + part.toString()).slice(-120000);
+    });
+    // Even an extremely slow local 30B model now has visible progress signals.
+    const heartbeat = setInterval(() => {
+      if (resolved) return;
+      const seconds = Math.floor((Date.now() - began) / 1000);
+      console.log('DevCode heartbeat: PID ' + (child.pid || '?') +
+        ', elapsed ' + seconds + 's, stdout ' + stdoutBytes + ' bytes, stderr ' +
+        stderrBytes + ' bytes, tool events ' + toolEvents + ', last event ' + lastEvent + '.');
+    }, 30000);
+    heartbeat.unref();
     const timer = setTimeout(() => {
       expired = true;
+      console.error('DevCode round watchdog reached; ending stalled model session. Existing changes remain on disk.');
       terminateGroup(child);
       killTimer = setTimeout(() => terminateGroup(child, 'SIGKILL'), 10000);
       killTimer.unref();
     }, roundTimeoutMs);
     timer.unref();
     active = child;
-    child.stdout.on('data', (part) => { out = (out + part.toString()).slice(-120000); });
-    child.stderr.on('data', (part) => { err = (err + part.toString()).slice(-120000); });
     const finish = (exit) => {
       if (resolved) return;
       resolved = true;
+      clearInterval(heartbeat);
       clearTimeout(timer);
       if (killTimer) clearTimeout(killTimer);
       active = null;
+      console.log('DevCode coding round finished: exit ' + (expired ? 124 : exit) +
+        ', elapsed ' + Math.floor((Date.now() - began) / 1000) +
+        's, stdout ' + stdoutBytes + ' bytes, stderr ' + stderrBytes + ' bytes.');
       done({
         exit: expired ? 124 : exit,
         out,
         err: err + (expired ? '\nDevCode round watchdog: model session exceeded the time limit. Work is preserved for the next round.' : '')
       });
     };
-    child.on('error', (error) => finish(1));
+    child.on('error', (error) => {
+      console.error('DevCode worker could not start: ' + error.code);
+      finish(1);
+    });
     child.on('close', (code) => finish(code ?? 1));
   });
 }
