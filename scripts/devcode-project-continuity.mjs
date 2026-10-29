@@ -339,6 +339,7 @@ async function verifyLive(state, fingerprint, commands) {
     ''
   ].join('\n');
   atomic(file('release-proof.md'), proof);
+  atomic(file('release-proof-' + fingerprint + '.md'), proof);
   state.completed = { at: new Date().toISOString(), fingerprint };
   recordRelease(state, { fingerprint, status: 'verified-live' });
   console.log('DevCode finished this project and VERIFIED its production deployment.');
@@ -447,7 +448,11 @@ async function main() {
       state.completed = null;
       state.production = null;
       atomic(statePath, JSON.stringify(state, null, 2) + '\n');
-      atomic(file('next-task.md'), 'STATUS: WORK_IN_PROGRESS\n\nContinue with the NEW unfinished project requirements. Preserve all completed features.\n');
+      const savedTask = read('next-task.md');
+      const reopenedTask = /^STATUS:/m.test(savedTask)
+        ? savedTask.replace(/^STATUS:.*$/m, 'STATUS: WORK_IN_PROGRESS')
+        : savedTask + '\nSTATUS: WORK_IN_PROGRESS\n';
+      atomic(file('next-task.md'), reopenedTask);
     }
     if (state.completed) {
       console.log('This project was already verified live. DevCode will not restart or redeploy it.');
