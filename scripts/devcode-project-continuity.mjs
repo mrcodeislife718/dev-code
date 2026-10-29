@@ -442,6 +442,19 @@ async function verifyLive(state, fingerprint, commands) {
   console.log('DevCode finished this project and VERIFIED its production deployment.');
   return 'done';
 }
+function freeLocalModelMemoryForBuild() {
+  try {
+    const address = new URL(base);
+    if (!['127.0.0.1', 'localhost'].includes(address.hostname) ||
+        address.port !== '11434') return;
+    const result = spawnSync('ollama', ['stop', model], {
+      cwd: project, encoding: 'utf8', timeout: 45000
+    });
+    if (result.status === 0) {
+      console.log('DevCode released the local AI model memory before production checks.');
+    }
+  } catch { /* The project checks will still run if Ollama CLI is unavailable. */ }
+}
 async function productionGate(state) {
   const fingerprint = hashWork();
   const commands = ownerCommands();
@@ -476,6 +489,7 @@ async function productionGate(state) {
     return verifyLive(state, fingerprint, commands);
   }
   recordRelease(state, { fingerprint, status: 'checking' });
+  freeLocalModelMemoryForBuild();
   for (const [name, command] of commands.checks) {
     if (!command) continue;
     console.log('DevCode production check: ' + name);
