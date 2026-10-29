@@ -122,7 +122,11 @@ function writeIndex(state) {
     'Before the conversation ends, UPDATE next-task.md and progress.md',
     'with precise paths, failing tests, decisions and the next action.',
     'Never claim production readiness without real verification.',
-    'Do not delete, reset, push, publish, deploy, spend money or leak secrets.',
+    'When all required features are implemented, tested, and documented,',
+    'write STATUS: READY_FOR_PRODUCTION_CHECK in next-task.md.',
+    'The DevCode supervisor then runs independent production checks,',
+    'deploys only through the owner-configured command, and verifies the live result.',
+    'Do not run deployment commands yourself, push, erase work, pay providers, or leak secrets.',
     '',
     'Current Git status:',
     gitStatus().slice(0, 10000) || '(clean)',
@@ -228,6 +232,171 @@ function spawnRound(binary, args, url) {
     child.on('close', (code) => finish(code ?? 1));
   });
 }
+// DevCode cannot call a project finished merely because a model says so.
+// Project-specific commands are supplied by the OWNER, never invented by AI.
+function readyForProduction() {
+  return /^STATUS:\s*READY_FOR_PRODUCTION_CHECK\s*$/im.test(read('next-task.md'));
+}
+function ownerCommands() {
+  let scripts = {};
+  try {
+    const pack = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'));
+    scripts = pack.scripts && typeof pack.scripts === 'object' ? pack.scripts : {};
+  } catch { /* Other languages can use explicitly configured commands. */ }
+  const pick = (owner, script) => process.env[owner] ||
+    (Object.prototype.hasOwnProperty.call(scripts, script) ? 'npm run ' + script : '');
+  return {
+    checks: [
+      ['typecheck', pick('DEVCODE_TYPECHECK_COMMAND', 'typecheck'), false],
+      ['lint', pick('DEVCODE_LINT_COMMAND', 'lint'), false],
+      ['test', pick('DEVCODE_TEST_COMMAND', 'test'), true],
+      ['build', pick('DEVCODE_BUILD_COMMAND', 'build'), true],
+    ],
+    deploy: process.env.DEVCODE_DEPLOY_COMMAND || '',
+    verify: process.env.DEVCODE_VERIFY_COMMAND || '',
+    permitted: process.env.DEVCODE_ALLOW_PRODUCTION_DEPLOY === '1'
+  };
+}
+function recordRelease(state, update) {
+  state.production = { ...(state.production || {}), ...update, at: new Date().toISOString() };
+  atomic(statePath, JSON.stringify(state, null, 2) + '\n');
+}
+function releaseLog(message) {
+  appendFileSync(file('production-checks.log'),
+    new Date().toISOString() + ' ' + String(message).slice(-4000) + '\n',
+    { mode: 0o600 });
+}
+function changeBackToRepair(message) {
+  const original = read('next-task.md').replace(
+    /^STATUS:\s*READY_FOR_PRODUCTION_CHECK\s*$/im, 'STATUS: WORK_IN_PROGRESS');
+  atomic(file('next-task.md'), original + '\n\nFix before production: ' + message + '\n');
+  releaseLog('Repair required: ' + message);
+}
+function shellStep(title, command, minutes = 20) {
+  return new Promise((finish) => {
+    let output = '', settled = false;
+    const child = spawn('/bin/sh', ['-lc', command], {
+      cwd: project, detached: true, env: { ...process.env, CI: 'true' },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    active = child;
+    const capture = (buf) => { output = (output + buf.toString()).slice(-8000); };
+    child.stdout.on('data', capture);
+    child.stderr.on('data', capture);
+    const timer = setTimeout(() => {
+      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already closed */ }
+    }, minutes * 60000);
+    const done = (code, reason) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      active = null;
+      finish({ ok: code === 0, code, output, reason });
+    };
+    child.on('error', (error) => done(1, error.message));
+    child.on('close', (code, signal) => done(code ?? 1, signal || ''));
+  });
+}
+async function verifyLive(state, fingerprint, commands) {
+  recordRelease(state, { fingerprint, status: 'verifying' });
+  const result = await shellStep('live verification', commands.verify);
+  releaseLog('Production verification exit ' + result.code + ': ' + result.output);
+  if (!result.ok) {
+    recordRelease(state, { fingerprint, status: 'verification-failed' });
+    console.error('Deployment exists, but the live checks failed. Will re-check, NOT blindly redeploy.');
+    return 'blocked';
+  }
+  // Even a successful HTTP response alone is not enough. The owner-supplied
+  // verification command must test the behavior that matters for this project.
+  const proof = [
+    '# Verified DevCode production release',
+    'Time: ' + new Date().toISOString(),
+    'Project: ' + project,
+    'Branch: ' + state.branch,
+    'Code fingerprint: ' + fingerprint,
+    'Local checks: passed',
+    'Deployment command: completed (or inspected after an interrupted attempt)',
+    'Live verification command: passed',
+    'Verification output:',
+    result.output.slice(-3500),
+    ''
+  ].join('\n');
+  atomic(file('release-proof.md'), proof);
+  state.completed = { at: new Date().toISOString(), fingerprint };
+  recordRelease(state, { fingerprint, status: 'verified-live' });
+  console.log('DevCode finished this project and VERIFIED its production deployment.');
+  return 'done';
+}
+async function productionGate(state) {
+  const fingerprint = hashWork();
+  const commands = ownerCommands();
+  const missing = commands.checks.filter((entry) => entry[2] && !entry[1]).map((entry) => entry[0]);
+  if (missing.length) {
+    changeBackToRepair('No real ' + missing.join(' and ') + ' command exists. ' +
+      'Add an existing project script or configure its DEVCODE_*_COMMAND.');
+    return 'repair';
+  }
+  const previous = state.production || {};
+  if (previous.fingerprint === fingerprint && previous.status === 'deployment-failed') {
+    console.error('Previous deployment failed; no blind second deployment of identical code.');
+    return 'blocked';
+  }
+  if (previous.fingerprint === fingerprint && previous.status === 'started-deploy') {
+    // A power loss may have occurred AFTER the production service accepted
+    // the deployment. Verify first; NEVER issue an automatic duplicate deploy.
+    if (!commands.verify) return 'blocked';
+    const check = await shellStep('recover deployment', commands.verify);
+    releaseLog('Recovery verification exit ' + check.code + ': ' + check.output);
+    if (!check.ok) {
+      recordRelease(state, { status: 'ambiguous-deployment', fingerprint });
+      console.error('Interrupted deploy status is unknown. Review production before retrying.');
+      return 'blocked';
+    }
+    return verifyLive(state, fingerprint, commands);
+  }
+  if (previous.fingerprint === fingerprint &&
+      ['deployed', 'verification-failed', 'verifying'].includes(previous.status)) {
+    if (!commands.verify) return 'blocked';
+    return verifyLive(state, fingerprint, commands);
+  }
+  recordRelease(state, { fingerprint, status: 'checking' });
+  for (const [name, command] of commands.checks) {
+    if (!command) continue;
+    console.log('DevCode production check: ' + name);
+    const result = await shellStep(name, command);
+    releaseLog(name + ' exit ' + result.code + ': ' + result.output);
+    if (!result.ok || !running) {
+      recordRelease(state, { fingerprint, status: 'checks-failed', failedStep: name });
+      changeBackToRepair(name + ' failed. See .devcode-factory/production-checks.log.');
+      return 'repair';
+    }
+  }
+  recordRelease(state, { fingerprint, status: 'checks-passed' });
+  // The code must still match what was tested.
+  if (fingerprint !== hashWork()) {
+    changeBackToRepair('Source changed during production checks; check the latest work and retry.');
+    return 'repair';
+  }
+  if (!commands.permitted || !commands.deploy || !commands.verify) {
+    recordRelease(state, { fingerprint, status: 'ready-to-deploy' });
+    console.error('Production tests passed. Deployment requires an approved deploy command and live verification command.');
+    return 'blocked';
+  }
+  // Explicit approval means owner configured a real target AND its existing
+  // deployment + live test commands. No cloud model may invent that permission.
+  recordRelease(state, { fingerprint, status: 'started-deploy' });
+  releaseLog('Starting owner-approved deployment (command text withheld from log).');
+  const deployed = await shellStep('production deployment', commands.deploy, 30);
+  releaseLog('Deploy exit ' + deployed.code + ': ' + deployed.output);
+  if (!deployed.ok || !running) {
+    recordRelease(state, { fingerprint, status: 'deployment-failed' });
+    console.error('Deployment failed. Saved exact failure; no blind automatic redeploy.');
+    return 'blocked';
+  }
+  recordRelease(state, { fingerprint, status: 'deployed' });
+  return verifyLive(state, fingerprint, commands);
+}
+
 async function main() {
   if (!model) throw Error('Set OPENAI_MODEL to your existing local model name.');
   const url = localAddress(base);
@@ -254,6 +423,10 @@ async function main() {
       if (old.branch !== branch) throw Error('Project branch changed since the last checkpoint. Review saved state first.');
       state = { ...state, ...old };
     }
+    if (state.completed) {
+      console.log('This project was already verified live. DevCode will not restart or redeploy it.');
+      return;
+    }
     let errors = 0;
     while (running) {
       if (!await healthy(url)) {
@@ -265,6 +438,17 @@ async function main() {
       errors = 0;
       const gotWorker = await reserveWorker();
       if (!gotWorker) break;
+      if (readyForProduction()) {
+        let outcome;
+        try { outcome = await productionGate(state); }
+        finally { freeWorker(); }
+        if (outcome === 'done') break;
+        if (once || !running) break;
+        if (outcome === 'blocked') { await pause(60000); continue; }
+        // Failed checks become the NEXT repair task. The same project resumes.
+        await pause(delay);
+        continue;
+      }
       const interrupted = Boolean(state.active);
       const before = hashWork();
       state.active = { started: new Date().toISOString(), before, branch };
@@ -284,7 +468,10 @@ async function main() {
         'the exact next action, code changes, errors and test results.',
         'You may get a fresh conversation after this round; the saved',
         'project records are the continuing memory.',
-        'Never push, deploy, destroy existing work, pay providers, or leak secrets.'
+        'When all requirements and related tests are complete, write',
+        'STATUS: READY_FOR_PRODUCTION_CHECK on its own line in next-task.md.',
+        'DevCode will independently test, deploy and verify the finished project.',
+        'Do not run deployment commands yourself, push, destroy work, spend money, or leak secrets.'
       ].join(' ');
       let result;
       try {
