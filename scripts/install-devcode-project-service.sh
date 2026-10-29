@@ -10,6 +10,13 @@ PROJECT="$(cd "${1:-$PWD}" && pwd -P)"
 # Set up the DevCode settings name without touching your old saved records.
 node "$ROOT/scripts/migrate-devcode-home.mjs"
 MODEL="${OPENAI_MODEL:-}"
+WALL_TIME="${DEVCODE_SESSION_WALL_TIME:-45m}"
+WATCHDOG="${DEVCODE_ROUND_TIMEOUT_MS:-3600000}"
+STALLED="${DEVCODE_MAX_STALLED_ROUNDS:-8}"
+[[ "$WALL_TIME" =~ ^[0-9]+[smh]$ ]] || { echo 'Invalid session duration (example: 45m).' >&2; exit 1; }
+[[ "$WATCHDOG" =~ ^[0-9]+$ && "$STALLED" =~ ^[0-9]+$ ]] || {
+  echo 'Invalid timeout or no-progress setting.' >&2; exit 1;
+}
 if [[ -z "$MODEL" ]]; then
   MODEL="$(python3 - "$HOME/.devcode/settings.json" "$HOME/.qwen/settings.json" <<'PY'
 import json,sys
@@ -61,6 +68,9 @@ Environment="DEVCODE_HOME=$HOME/.devcode"
 Environment="OPENAI_BASE_URL=http://127.0.0.1:11434/v1"
 Environment="OPENAI_MODEL=$MODEL"
 Environment="OPENAI_API_KEY=local-only"
+Environment="DEVCODE_SESSION_WALL_TIME=$WALL_TIME"
+Environment="DEVCODE_ROUND_TIMEOUT_MS=$WATCHDOG"
+Environment="DEVCODE_MAX_STALLED_ROUNDS=$STALLED"
 Environment="PATH=$PATH"
 # These commands belong to THIS project. Nothing will be deployed without
 # an explicit release target and a live test configured by the owner.
@@ -80,6 +90,8 @@ echo "Project: $PROJECT"
 echo "Service: $SERVICE"
 echo "To follow its work: journalctl --user -u $SERVICE -f"
 echo "Your project code is preserved. Its memory is in $PROJECT/.devcode-factory/"
+echo "Each coding round may run for $WALL_TIME; a separate watchdog monitors it."
+echo "After $STALLED unproductive rounds, DevCode pauses for review instead of wasting your computer."
 echo "Optional production settings file:"
 echo "  $HOME/.config/devcode/production-$IDENTITY.env"
 echo "Deployment happens only when that file explicitly permits it, and tests pass."
