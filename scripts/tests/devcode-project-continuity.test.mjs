@@ -188,3 +188,44 @@ test('failed live verification cannot repeatedly deploy unchanged code', async (
   const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
   assert.equal(state.production.status, 'verification-failed');
 });
+
+test('reopen a deployed project to add new features without erasing its previous goal', async (t) => {
+  const f = await setup(t);
+  assert.equal((await f.run()).code, 0);
+  const memory = join(f.root, '.devcode-factory');
+  writeFileSync(join(memory, 'next-task.md'), 'STATUS: READY_FOR_PRODUCTION_CHECK\nOriginal project requirements preserved\n');
+  const opts = {
+    DEVCODE_ALLOW_PRODUCTION_DEPLOY: '1',
+    DEVCODE_TEST_COMMAND: 'true',
+    DEVCODE_BUILD_COMMAND: 'true',
+    DEVCODE_DEPLOY_COMMAND: 'echo released > .devcode-factory/released.txt',
+    DEVCODE_VERIFY_COMMAND: 'test -s .devcode-factory/released.txt'
+  };
+  const completed = await f.run([], opts);
+  assert.equal(completed.code, 0, completed.output);
+  const before = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.ok(before.completed);
+  const reopened = await f.run(['--reopen']);
+  assert.equal(reopened.code, 0, reopened.output);
+  const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(state.completed, null);
+  assert.equal(state.previousReleases.length, 1);
+  assert.match(readFileSync(join(memory, 'next-task.md'), 'utf8'), /Original project requirements preserved/);
+  assert.match(readFileSync(join(memory, 'next-task.md'), 'utf8'), /WORK_IN_PROGRESS/);
+  assert.ok(existsSync(join(memory, 'release-proof-' + before.completed.fingerprint + '.md')));
+});
+
+test('model never inherits the production deployment approval or deploy credentials', async (t) => {
+  const f = await setup(t);
+  const result = await f.run([], {
+    DEVCODE_ALLOW_PRODUCTION_DEPLOY: '1',
+    DEVCODE_DEPLOY_COMMAND: 'echo dangerous',
+    DEVCODE_VERIFY_COMMAND: 'true',
+    VERCEL_TOKEN: 'private-test-token-00000'
+  });
+  assert.equal(result.code, 0, result.output);
+  const last = readFileSync(join(f.root, '.devcode-factory', 'last-args.txt'), 'utf8');
+  assert.match(last, /CONTINUE the EXISTING software project/);
+  // The model is instructed to leave deploy permissions to the supervisor.
+  assert.doesNotMatch(last, /VERCEL_TOKEN|private-test-token-00000/);
+});
