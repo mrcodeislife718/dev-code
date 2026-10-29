@@ -40,6 +40,8 @@ const base = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1';
 const delay = Number(process.env.DEVCODE_RETRY_MS || 10000);
 const maxDelay = 300000;
 const sessionWallTime = process.env.DEVCODE_SESSION_WALL_TIME || '45m';
+const roundTimeoutMs = Number(process.env.DEVCODE_ROUND_TIMEOUT_MS || 60 * 60000);
+const maxStalledRounds = Number(process.env.DEVCODE_MAX_STALLED_ROUNDS || 8);
 const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 let running = true;
 let active = null;
@@ -69,6 +71,19 @@ function localAddress(value) {
   return u.href.replace(/\/$/, '');
 }
 function pause(ms) { return new Promise((ok) => setTimeout(ok, ms)); }
+function terminateGroup(child, signal = 'SIGTERM') {
+  if (!child?.pid) return;
+  try { process.kill(-child.pid, signal); }
+  catch {
+    try { child.kill(signal); } catch { /* already exited */ }
+  }
+}
+function checkpointHash() {
+  const names = ['next-task.md', 'progress.md', 'evidence.md', 'blockers.md'];
+  const notes = names.map((name) =>
+    existsSync(file(name)) ? read(name) : '[missing]');
+  return createHash('sha256').update(JSON.stringify(notes)).digest('hex');
+}
 function backoff(streak) { return Math.min(maxDelay, delay * 2 ** Math.min(7, Math.max(0, streak - 1))); }
 function gitStatus() { return exec('git', ['status', '--porcelain', '--untracked-files=normal']); }
 function hashWork() {
@@ -103,6 +118,22 @@ function initialFiles() {
     'decisions.md': '# Important decisions\n\nPreserve architectural choices and reasons here.\n',
     'evidence.md': '# Verified tests and acceptance\n\nRecord commands, dates, results and remaining failures. Never invent proof.\n',
     'blockers.md': '# Missing permissions and external obstacles\n\nContinue other useful tasks when one task is blocked.\n',
+    'quality-rules.md': [
+      '# DevCode production engineering rules',
+      'Keep the existing product and its chosen architecture; never start over.',
+      'Before editing, read project AGENTS.md, README, .editorconfig,',
+      'existing lint/format settings, tests and any project-specific rules.',
+      'Match the local naming, layout, language, accessibility and code style.',
+      'Do not rewrite unrelated code, hide errors, disable tests, or invent proof.',
+      'Implement full working behavior, not placeholders or fake integrations.',
+      'Test the change; repair failures and record exact commands and results.',
+      'Review security, authentication, tenancy, secrets, reliability,',
+      'data persistence, migrations, monitoring, and error paths where applicable.',
+      'Do not push, deploy, purchase, delete projects or expose credentials.',
+      'Independent owner-configured checks and live verification decide release.',
+      ''
+    ].join('\n'),
+
   };
   for (const [name, content] of Object.entries(records)) {
     if (!existsSync(file(name))) writeFileSync(file(name), content, { flag: 'wx', mode: 0o600 });
@@ -117,6 +148,8 @@ function writeIndex(state) {
     'Git branch: ' + state.branch,
     'Completed coding rounds: ' + state.rounds,
     'Last outcome: ' + (state.last?.exit ?? 'not started'),
+    'Rounds without source or useful checkpoint changes: ' + (state.stalls ?? 0),
+    ...(state.stalls >= 3 ? ['RECOVERY REQUIRED: replan and inspect failed commands before repeating work.'] : []),
     ...(state.active ? [
       'RECOVERY: previous work was interrupted before the last checkpoint.',
       'Inspect actual project changes and tests before repeating the unfinished task.'
@@ -126,9 +159,10 @@ function writeIndex(state) {
     '1. .devcode-factory/mission.md (what the project must achieve)',
     '2. .devcode-factory/next-task.md (the exact unfinished task)',
     '3. .devcode-factory/progress.md (implemented parts and current progress)',
-    '4. .devcode-factory/decisions.md, evidence.md, blockers.md (as needed)',
-    '5. Real project files and git history (the source of truth)',
-    '6. Preserve any earlier project records, including .jobflow-factory/ if it exists',
+    '4. .devcode-factory/quality-rules.md and project style instructions',
+    '5. .devcode-factory/decisions.md, evidence.md, blockers.md (as needed)',
+    '6. Real project files and git history (the source of truth)',
+    '7. Preserve any earlier project records, including .jobflow-factory/ if it exists',
     '',
     'Inspect code and tests before making changes. Preserve existing work.',
     'Before the conversation ends, UPDATE next-task.md and progress.md',
@@ -212,7 +246,7 @@ function freeWorker() {
   }
 }
 
-function stop() { running = false; if (active) active.kill('SIGTERM'); }
+function stop() { running = false; if (active) terminateGroup(active); }
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
 async function healthy(url) {
@@ -225,7 +259,8 @@ async function healthy(url) {
 }
 function spawnRound(binary, args, url) {
   return new Promise((done) => {
-    let out = '', err = '', resolved = false;
+    let out = '', err = '', resolved = false, expired = false;
+    let killTimer;
     // The model can edit code; it must not inherit owner-only production
     // approvals, deploy commands or credentials from the supervisor.
     const modelEnv = { ...process.env };
@@ -234,18 +269,32 @@ function spawnRound(binary, args, url) {
           /^(VERCEL_TOKEN|CLOUDFLARE_API_TOKEN|GITHUB_TOKEN|STRIPE_SECRET_KEY)$/.test(key)) delete modelEnv[key];
     }
     const child = spawn(binary, args, {
-      cwd: project, env: {
+      cwd: project, detached: true, env: {
         ...modelEnv, OPENAI_BASE_URL: url,
         OPENAI_MODEL: model, OPENAI_API_KEY: 'local-only'
       }, stdio: ['ignore', 'pipe', 'pipe']
     });
+    const timer = setTimeout(() => {
+      expired = true;
+      terminateGroup(child);
+      killTimer = setTimeout(() => terminateGroup(child, 'SIGKILL'), 10000);
+      killTimer.unref();
+    }, roundTimeoutMs);
+    timer.unref();
     active = child;
     child.stdout.on('data', (part) => { out = (out + part.toString()).slice(-120000); });
     child.stderr.on('data', (part) => { err = (err + part.toString()).slice(-120000); });
     const finish = (exit) => {
       if (resolved) return;
-      resolved = true; active = null;
-      done({ exit, out, err });
+      resolved = true;
+      clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
+      active = null;
+      done({
+        exit: expired ? 124 : exit,
+        out,
+        err: err + (expired ? '\nDevCode round watchdog: model session exceeded the time limit. Work is preserved for the next round.' : '')
+      });
     };
     child.on('error', (error) => finish(1));
     child.on('close', (code) => finish(code ?? 1));
@@ -311,13 +360,17 @@ function shellStep(title, command, minutes = 20) {
     const capture = (buf) => { output = (output + buf.toString()).slice(-8000); };
     child.stdout.on('data', capture);
     child.stderr.on('data', capture);
+    let killTimer;
     const timer = setTimeout(() => {
-      try { process.kill(-child.pid, 'SIGTERM'); } catch { /* already closed */ }
+      terminateGroup(child);
+      killTimer = setTimeout(() => terminateGroup(child, 'SIGKILL'), 10000);
+      killTimer.unref();
     }, minutes * 60000);
     const done = (code, reason) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      if (killTimer) clearTimeout(killTimer);
       active = null;
       finish({ ok: code === 0, code, output, reason });
     };
@@ -431,6 +484,10 @@ async function main() {
   if (!model) throw Error('Set OPENAI_MODEL to your existing local model name.');
   const url = localAddress(base);
   if (!Number.isSafeInteger(delay) || delay < 1000) throw Error('Invalid retry interval.');
+  if (!Number.isSafeInteger(roundTimeoutMs) || roundTimeoutMs < 1000 || roundTimeoutMs > 86400000)
+    throw Error('Invalid round watchdog time.');
+  if (!Number.isSafeInteger(maxStalledRounds) || maxStalledRounds < 6 || maxStalledRounds > 100)
+    throw Error('Invalid no-progress threshold.');
   if (!existsSync(join(project, '.git'))) throw Error('Choose the root of an existing Git project: ' + project);
   if (resolve(exec('git', ['rev-parse', '--show-toplevel'])) !== project) throw Error('Use the root of your existing project.');
   const branch = exec('git', ['branch', '--show-current']);
@@ -486,13 +543,21 @@ async function main() {
         finally { freeWorker(); }
         if (outcome === 'done') break;
         if (once || !running) break;
-        if (outcome === 'blocked') { await pause(60000); continue; }
+        if (outcome === 'blocked') {
+          if (['ready-to-deploy', 'ambiguous-deployment', 'deployment-failed'].includes(state.production?.status)) {
+            console.error('Factory paused: production requires an owner-approved configuration or deployment review.');
+            break;
+          }
+          await pause(60000);
+          continue;
+        }
         // Failed checks become the NEXT repair task. The same project resumes.
         await pause(delay);
         continue;
       }
       const interrupted = Boolean(state.active);
       const before = hashWork();
+      const beforeCheckpoint = checkpointHash();
       state.active = { started: new Date().toISOString(), before, branch };
       atomic(statePath, JSON.stringify(state, null, 2) + '\n');
       // Show recovery only when the PREVIOUS process left work unfinished.
@@ -503,14 +568,26 @@ async function main() {
           'RECOVERY: previous work was interrupted; inspect existing unfinished changes first.'
         ] : []),
         'FIRST read .devcode-factory/START-HERE.md and mission.md.',
-        'Read next-task.md and progress.md and inspect actual code.',
+        'Read quality-rules.md, next-task.md, progress.md and actual code.',
+        'Read AGENTS.md in the project and relevant folders if present.',
+        'Follow README, .editorconfig, existing linter/formatter rules,',
+        'the project architecture, UX patterns, tests and coding conventions.',
         'If the project already has other progress notes or records,',
         'including .jobflow-factory/, incorporate them rather than starting over.',
         'Implement exactly the next unfinished meaningful task.',
+        'Use native DevCode file, search and terminal tools; make real edits.',
+        'Do not merely describe commands or output shell scripts as a substitute.',
+        ...(state.stalls >= 3 ? [
+          'RECOVERY: previous rounds showed no measurable progress.',
+          'Inspect the last error, find the root cause, and CHANGE APPROACH.',
+          'If stuck on one task, document it and work on another useful task.'
+        ] : []),
         'Your goal is end-to-end completion: complete features, fix defects,',
         'add missing tests, verify production security and configuration,',
         'and prepare existing scripts for a real production release.',
         'Run the related tests, repair failures, and record evidence.',
+        'Do not remove tests or silence warnings to create false success.',
+        'Respect existing project coding style and accessibility requirements.',
         'Before finishing UPDATE next-task.md and progress.md with',
         'the exact next action, code changes, errors and test results.',
         'You may get a fresh conversation after this round; the saved',
@@ -534,20 +611,37 @@ async function main() {
         freeWorker();
       }
       const workChanged = before !== hashWork();
+      const checkpointChanged = beforeCheckpoint !== checkpointHash();
+      const progressed = workChanged || checkpointChanged;
       state = {
         ...state, rounds: state.rounds + 1, branch, active: null,
-        stalls: workChanged ? 0 : state.stalls + 1,
+        stalls: progressed ? 0 : state.stalls + 1,
         last: {
           at: new Date().toISOString(), exit: result.exit,
-          workChanged, details: safeLog(result.err || result.out).slice(-1200)
+          workChanged, checkpointChanged,
+          details: safeLog(result.err || result.out).slice(-1200)
         }
       };
       appendFileSync(historyPath, JSON.stringify(state.last) + '\n', { mode: 0o600 });
       atomic(statePath, JSON.stringify(state, null, 2) + '\n');
       writeIndex(state);
-      console.log('Round ' + state.rounds + ': ' + (workChanged ? 'existing project updated' : 'no source changes') + '. Continue from saved task.');
+      console.log('Round ' + state.rounds + ': ' +
+        (workChanged ? 'existing project updated' : checkpointChanged ? 'continuity checkpoint updated' : 'no measurable progress') +
+        '. Continue from saved task.');
+      if (state.stalls >= maxStalledRounds) {
+        appendFileSync(file('blockers.md'),
+          '\n## Factory needs a new approach or owner input — ' + new Date().toISOString() +
+          '\nNo measurable code or checkpoint progress after ' + state.stalls +
+          ' consecutive model rounds. Last model result: ' + state.last.exit +
+          '\nReview the last error and choose a different approach. Existing work remains intact.\n',
+          { mode: 0o600 });
+        state.needsReview = { at: new Date().toISOString(), reason: 'repeated-no-progress', rounds: state.stalls };
+        atomic(statePath, JSON.stringify(state, null, 2) + '\n');
+        console.error('Factory paused after repeated unproductive rounds. No code was erased. Review blockers.md, then restart.');
+        break;
+      }
       if (once || !running) break;
-      await pause(workChanged ? delay : backoff(state.stalls));
+      await pause(progressed ? delay : backoff(state.stalls));
     }
   } finally { try { unlinkSync(lockPath); } catch {} }
 }
