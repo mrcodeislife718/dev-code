@@ -215,6 +215,68 @@ test('reopen a deployed project to add new features without erasing its previous
   assert.ok(existsSync(join(memory, 'release-proof-' + before.completed.fingerprint + '.md')));
 });
 
+test('project-specific quality rules survive repeated coding sessions', async (t) => {
+  const f = await setup(t);
+  assert.equal((await f.run()).code, 0);
+  const rules = join(f.root, '.devcode-factory', 'quality-rules.md');
+  const original = readFileSync(rules, 'utf8');
+  assert.match(original, /\.editorconfig|AGENTS\.md/);
+  assert.match(readFileSync(join(f.root, '.devcode-factory', 'last-args.txt'), 'utf8'),
+    /project coding style|coding conventions/);
+  assert.equal((await f.run()).code, 0);
+  assert.equal(readFileSync(rules, 'utf8'), original);
+});
+
+test('watchdog ends a hanging model round, keeps project and clears its lock', async (t) => {
+  const f = await setup(t, { changes: false });
+  const shell = join(f.root, 'mock-devcode.sh');
+  writeFileSync(shell, '#!/bin/sh\nsleep 20\n');
+  chmodSync(shell, 0o755);
+  const r = await f.run([], { DEVCODE_ROUND_TIMEOUT_MS: '1200' });
+  assert.equal(r.code, 0, r.output);
+  const memory = join(f.root, '.devcode-factory');
+  const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(state.rounds, 1);
+  assert.equal(state.last.exit, 124);
+  assert.match(state.last.details, /watchdog/);
+  assert.equal(existsSync(join(memory, 'runner.lock')), false);
+  assert.match(readFileSync(join(f.root, 'app.js'), 'utf8'), /Project exists/);
+});
+
+test('repeated unproductive work is reported and does not loop indefinitely', async (t) => {
+  const f = await setup(t, { changes: false });
+  for (let n = 0; n < 6; n++) {
+    const r = await f.run([], { DEVCODE_MAX_STALLED_ROUNDS: '6' });
+    assert.equal(r.code, 0, r.output);
+    if (n === 5) assert.match(r.output, /Factory paused/);
+  }
+  const memory = join(f.root, '.devcode-factory');
+  const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(state.rounds, 6);
+  assert.equal(state.needsReview.reason, 'repeated-no-progress');
+  assert.match(readFileSync(join(memory, 'blockers.md'), 'utf8'), /new approach or owner input/);
+  assert.match(readFileSync(join(f.root, 'app.js'), 'utf8'), /Project exists/);
+});
+
+test('real checkpoint progress is not mistaken for stalling', async (t) => {
+  const f = await setup(t, { changes: false });
+  const shell = join(f.root, 'mock-devcode.sh');
+  writeFileSync(shell, [
+    '#!/bin/sh',
+    'printf "Found a useful existing requirement\\n" >> .devcode-factory/progress.md',
+    'exit 0',
+    ''
+  ].join('\n'));
+  chmodSync(shell, 0o755);
+  for (let n = 0; n < 3; n++) {
+    const r = await f.run();
+    assert.equal(r.code, 0, r.output);
+  }
+  const state = JSON.parse(readFileSync(join(f.root, '.devcode-factory', 'state.json'), 'utf8'));
+  assert.equal(state.stalls, 0);
+  assert.equal(state.last.checkpointChanged, true);
+});
+
 test('model never inherits the production deployment approval or deploy credentials', async (t) => {
   const f = await setup(t);
   const result = await f.run([], {
