@@ -277,6 +277,48 @@ test('real checkpoint progress is not mistaken for stalling', async (t) => {
   assert.equal(state.last.checkpointChanged, true);
 });
 
+test('factory does not mistake an endless planning loop for source code progress', async (t) => {
+  const f = await setup(t, { changes: false });
+  const shell = join(f.root, 'mock-devcode.sh');
+  writeFileSync(shell, [
+    '#!/bin/sh',
+    'printf "another plan without code\\n" >> .devcode-factory/progress.md',
+    'exit 0',
+    ''
+  ].join('\n'));
+  chmodSync(shell, 0o755);
+  for (let n = 0; n < 6; n++) {
+    const r = await f.run([], {
+      DEVCODE_MAX_STALLED_ROUNDS: '6',
+      DEVCODE_MAX_CODELESS_ROUNDS: '6'
+    });
+    assert.equal(r.code, 0, r.output);
+  }
+  const state = JSON.parse(readFileSync(join(f.root, '.devcode-factory', 'state.json'), 'utf8'));
+  assert.equal(state.needsReview.reason, 'repeated-no-source-changes');
+  assert.equal(state.sourceStalls, 6);
+  assert.match(readFileSync(join(f.root, 'app.js'), 'utf8'), /Project exists/);
+});
+
+test('model child cannot read owner credentials from its environment', async (t) => {
+  const f = await setup(t, { changes: false });
+  const shell = join(f.root, 'mock-devcode.sh');
+  writeFileSync(shell, [
+    '#!/bin/sh',
+    'printf "%s;%s;%s\\n" "${MY_DEPLOY_TOKEN:-empty}" "${DATABASE_URL:-empty}" "${AWS_SECRET_ACCESS_KEY:-empty}" > .devcode-factory/secret-check.txt',
+    'exit 0',
+    ''
+  ].join('\n'));
+  chmodSync(shell, 0o755);
+  const r = await f.run([], {
+    MY_DEPLOY_TOKEN: 'do-not-share-this-token',
+    DATABASE_URL: 'postgres://secret@localhost/private',
+    AWS_SECRET_ACCESS_KEY: 'secret-aws-value'
+  });
+  assert.equal(r.code, 0, r.output);
+  assert.equal(readFileSync(join(f.root, '.devcode-factory', 'secret-check.txt'), 'utf8').trim(), 'empty;empty;empty');
+});
+
 test('model never inherits the production deployment approval or deploy credentials', async (t) => {
   const f = await setup(t);
   const result = await f.run([], {
