@@ -63,7 +63,7 @@ StartLimitIntervalSec=0
 
 [Service]
 Type=simple
-WorkingDirectory="$PROJECT"
+WorkingDirectory=$PROJECT
 Environment="DEVCODE_PROJECT_DIR=$PROJECT"
 Environment="DEVCODE_HOME=$HOME/.devcode"
 Environment="OPENAI_BASE_URL=http://127.0.0.1:11434/v1"
@@ -87,6 +87,11 @@ TimeoutStopSec=45
 WantedBy=default.target
 UNIT
 systemctl --user daemon-reload
+# Fail fast on an invalid unit rather than printing a false success message.
+systemd-analyze --user verify "$UNIT_DIR/$SERVICE" || {
+  echo "DevCode service has an invalid systemd setting; no coding session started." >&2
+  exit 1
+}
 systemctl --user enable --now "$SERVICE"
 echo "Project: $PROJECT"
 echo "Service: $SERVICE"
