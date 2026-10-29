@@ -262,8 +262,14 @@ function recordRelease(state, update) {
   atomic(statePath, JSON.stringify(state, null, 2) + '\n');
 }
 function releaseLog(message) {
+  let safe = String(message);
+  for (const [name, value] of Object.entries(process.env)) {
+    if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(name) &&
+        typeof value === 'string' && value.length >= 8)
+      safe = safe.split(value).join('[PRIVATE]');
+  }
   appendFileSync(file('production-checks.log'),
-    new Date().toISOString() + ' ' + String(message).slice(-4000) + '\n',
+    new Date().toISOString() + ' ' + safe.slice(-4000) + '\n',
     { mode: 0o600 });
 }
 function changeBackToRepair(message) {
@@ -337,8 +343,9 @@ async function productionGate(state) {
     return 'repair';
   }
   const previous = state.production || {};
-  if (previous.fingerprint === fingerprint && previous.status === 'deployment-failed') {
-    console.error('Previous deployment failed; no blind second deployment of identical code.');
+  if (previous.fingerprint === fingerprint &&
+      ['deployment-failed', 'ambiguous-deployment'].includes(previous.status)) {
+    console.error('Previous deployment needs review; no blind second deployment of identical code.');
     return 'blocked';
   }
   if (previous.fingerprint === fingerprint && previous.status === 'started-deploy') {
@@ -463,11 +470,15 @@ async function main() {
         'FIRST read .devcode-factory/START-HERE.md and mission.md.',
         'Read next-task.md and progress.md and inspect actual code.',
         'Implement exactly the next unfinished meaningful task.',
+        'Your goal is end-to-end completion: complete features, fix defects,',
+        'add missing tests, verify production security and configuration,',
+        'and prepare existing scripts for a real production release.',
         'Run the related tests, repair failures, and record evidence.',
         'Before finishing UPDATE next-task.md and progress.md with',
         'the exact next action, code changes, errors and test results.',
         'You may get a fresh conversation after this round; the saved',
         'project records are the continuing memory.',
+        'Never claim a product is ready based on a summary or a changed file.',
         'When all requirements and related tests are complete, write',
         'STATUS: READY_FOR_PRODUCTION_CHECK on its own line in next-task.md.',
         'DevCode will independently test, deploy and verify the finished project.',
