@@ -92,7 +92,7 @@ function hashWork() {
   // Stream the diff through a digest instead of holding a large codebase's
   // full binary diff in Node memory. Retains an exact tracked-change proof.
   const tracked = exec('bash', ['-o', 'pipefail', '-c',
-    'git diff --no-ext-diff --binary HEAD | sha256sum']).split(/\\s+/)[0];
+    'git diff --no-ext-diff --binary HEAD | sha256sum']).split(/\s+/)[0];
   // A user's DevCode home may be inside their project. Exclude its lock
   // files from the project fingerprint so restarts cannot look like new code.
   const sharedRelative = relative(project, sharedHome);
