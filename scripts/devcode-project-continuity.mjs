@@ -19,7 +19,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, openSync, closeSync, unlinkSync, statSync, appendFileSync } from 'node:fs';
-import { resolve, dirname, join } from 'node:path';
+import { resolve, dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
 import { homedir } from 'node:os';
@@ -50,7 +50,9 @@ function atomic(file, data) {
   renameSync(tmp, file);
 }
 function exec(command, args) {
-  const r = spawnSync(command, args, { cwd: project, encoding: 'utf8', timeout: 15000 });
+  const r = spawnSync(command, args, {
+    cwd: project, encoding: 'utf8', timeout: 60000, maxBuffer: 64 * 1024 * 1024
+  });
   if (r.status !== 0 || r.error) throw Error(r.error?.message || r.stderr?.trim() || command + ' failed');
   return r.stdout.trim();
 }
@@ -72,9 +74,17 @@ function gitStatus() { return exec('git', ['status', '--porcelain', '--untracked
 function hashWork() {
   const commit = exec('git', ['rev-parse', 'HEAD']);
   const tracked = exec('git', ['diff', '--no-ext-diff', '--binary', 'HEAD']);
+  // A user's DevCode home may be inside their project. Exclude its lock
+  // files from the project fingerprint so restarts cannot look like new code.
+  const sharedRelative = relative(project, sharedHome);
+  const sharedWithinProject = sharedRelative !== '' &&
+    sharedRelative !== '..' && !sharedRelative.startsWith('..' + sep) &&
+    !sharedRelative.startsWith(sep);
   const extras = exec('git', ['ls-files', '--others', '--exclude-standard'])
     .split('\n').filter(Boolean)
     .filter((f) => !f.startsWith('.devcode-factory/'))
+    .filter((f) => !(sharedWithinProject &&
+      (f === sharedRelative || f.startsWith(sharedRelative + '/'))))
     .map((f) => {
       try { const st = statSync(join(project, f)); return [f, st.size, st.mtimeMs]; }
       catch { return [f, 'missing']; }
@@ -335,7 +345,7 @@ async function verifyLive(state, fingerprint, commands) {
     'Deployment command: completed (or inspected after an interrupted attempt)',
     'Live verification command: passed',
     'Verification output:',
-    result.output.slice(-3500),
+    safeLog(result.output).slice(-3500),
     ''
   ].join('\n');
   atomic(file('release-proof.md'), proof);
