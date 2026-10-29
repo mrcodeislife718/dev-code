@@ -42,6 +42,7 @@ const maxDelay = 300000;
 const sessionWallTime = process.env.DEVCODE_SESSION_WALL_TIME || '45m';
 const roundTimeoutMs = Number(process.env.DEVCODE_ROUND_TIMEOUT_MS || 60 * 60000);
 const maxStalledRounds = Number(process.env.DEVCODE_MAX_STALLED_ROUNDS || 8);
+const maxCodelessRounds = Number(process.env.DEVCODE_MAX_CODELESS_ROUNDS || 24);
 const bootId = (() => { try { return readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim(); } catch { return ''; } })();
 let running = true;
 let active = null;
@@ -149,6 +150,7 @@ function writeIndex(state) {
     'Completed coding rounds: ' + state.rounds,
     'Last outcome: ' + (state.last?.exit ?? 'not started'),
     'Rounds without source or useful checkpoint changes: ' + (state.stalls ?? 0),
+    'Rounds without source code changes: ' + (state.sourceStalls ?? 0),
     ...(state.stalls >= 3 ? ['RECOVERY REQUIRED: replan and inspect failed commands before repeating work.'] : []),
     ...(state.active ? [
       'RECOVERY: previous work was interrupted before the last checkpoint.',
@@ -535,6 +537,8 @@ async function main() {
     throw Error('Invalid round watchdog time.');
   if (!Number.isSafeInteger(maxStalledRounds) || maxStalledRounds < 6 || maxStalledRounds > 100)
     throw Error('Invalid no-progress threshold.');
+  if (!Number.isSafeInteger(maxCodelessRounds) || maxCodelessRounds < maxStalledRounds || maxCodelessRounds > 1000)
+    throw Error('Invalid no-code-change threshold.');
   if (!existsSync(join(project, '.git'))) throw Error('Choose the root of an existing Git project: ' + project);
   if (resolve(exec('git', ['rev-parse', '--show-toplevel'])) !== project) throw Error('Use the root of your existing project.');
   const branch = exec('git', ['branch', '--show-current']);
@@ -663,6 +667,7 @@ async function main() {
       state = {
         ...state, rounds: state.rounds + 1, branch, active: null,
         stalls: progressed ? 0 : state.stalls + 1,
+        sourceStalls: workChanged ? 0 : (state.sourceStalls ?? 0) + 1,
         last: {
           at: new Date().toISOString(), exit: result.exit,
           workChanged, checkpointChanged,
@@ -675,14 +680,17 @@ async function main() {
       console.log('Round ' + state.rounds + ': ' +
         (workChanged ? 'existing project updated' : checkpointChanged ? 'continuity checkpoint updated' : 'no measurable progress') +
         '. Continue from saved task.');
-      if (state.stalls >= maxStalledRounds) {
+      if (state.stalls >= maxStalledRounds || state.sourceStalls >= maxCodelessRounds) {
+        const reason = state.stalls >= maxStalledRounds
+          ? 'repeated-no-progress' : 'repeated-no-source-changes';
         appendFileSync(file('blockers.md'),
           '\n## Factory needs a new approach or owner input — ' + new Date().toISOString() +
-          '\nNo measurable code or checkpoint progress after ' + state.stalls +
-          ' consecutive model rounds. Last model result: ' + state.last.exit +
+          '\nNo meaningful code progress. Unproductive rounds: ' + state.stalls +
+          '; rounds with no source edits: ' + state.sourceStalls +
+          '. Last model result: ' + state.last.exit +
           '\nReview the last error and choose a different approach. Existing work remains intact.\n',
           { mode: 0o600 });
-        state.needsReview = { at: new Date().toISOString(), reason: 'repeated-no-progress', rounds: state.stalls };
+        state.needsReview = { at: new Date().toISOString(), reason, rounds: state.stalls };
         atomic(statePath, JSON.stringify(state, null, 2) + '\n');
         console.error('Factory paused after repeated unproductive rounds. No code was erased. Review blockers.md, then restart.');
         break;
