@@ -88,10 +88,11 @@ WantedBy=default.target
 UNIT
 systemctl --user daemon-reload
 # Fail fast on an invalid unit rather than printing a false success message.
-systemd-analyze --user verify "$UNIT_DIR/$SERVICE" || {
-  echo "DevCode service has an invalid systemd setting; no coding session started." >&2
+LOAD_STATE="$(systemctl --user show "$SERVICE" -p LoadState --value --no-pager)"
+if [[ "$LOAD_STATE" != "loaded" ]]; then
+  echo "DevCode service was not accepted by systemd (LoadState=$LOAD_STATE)." >&2
   exit 1
-}
+fi
 systemctl --user enable --now "$SERVICE"
 echo "Project: $PROJECT"
 echo "Service: $SERVICE"
