@@ -34,6 +34,7 @@ const sharedHome = resolve(process.env.DEVCODE_HOME || join(homedir(), '.devcode
 const workerLockPath = join(sharedHome, 'engineering-worker.lock');
 const check = process.argv.includes('--check');
 const once = process.argv.includes('--once');
+const reopen = process.argv.includes('--reopen');
 const model = process.env.OPENAI_MODEL || '';
 const base = process.env.OPENAI_BASE_URL || 'http://127.0.0.1:11434/v1';
 const delay = Number(process.env.DEVCODE_RETRY_MS || 10000);
@@ -214,9 +215,16 @@ async function healthy(url) {
 function spawnRound(binary, args, url) {
   return new Promise((done) => {
     let out = '', err = '', resolved = false;
+    // The model can edit code; it must not inherit owner-only production
+    // approvals, deploy commands or credentials from the supervisor.
+    const modelEnv = { ...process.env };
+    for (const key of Object.keys(modelEnv)) {
+      if (/^DEVCODE_(ALLOW_PRODUCTION_DEPLOY|DEPLOY_COMMAND|VERIFY_COMMAND|TEST_COMMAND|BUILD_COMMAND|TYPECHECK_COMMAND|LINT_COMMAND)$/.test(key) ||
+          /^(VERCEL_TOKEN|CLOUDFLARE_API_TOKEN|GITHUB_TOKEN|STRIPE_SECRET_KEY)$/.test(key)) delete modelEnv[key];
+    }
     const child = spawn(binary, args, {
       cwd: project, env: {
-        ...process.env, OPENAI_BASE_URL: url,
+        ...modelEnv, OPENAI_BASE_URL: url,
         OPENAI_MODEL: model, OPENAI_API_KEY: 'local-only'
       }, stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -261,15 +269,18 @@ function recordRelease(state, update) {
   state.production = { ...(state.production || {}), ...update, at: new Date().toISOString() };
   atomic(statePath, JSON.stringify(state, null, 2) + '\n');
 }
-function releaseLog(message) {
+function safeLog(message) {
   let safe = String(message);
   for (const [name, value] of Object.entries(process.env)) {
     if (/KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL|AUTH/i.test(name) &&
         typeof value === 'string' && value.length >= 8)
       safe = safe.split(value).join('[PRIVATE]');
   }
+  return safe;
+}
+function releaseLog(message) {
   appendFileSync(file('production-checks.log'),
-    new Date().toISOString() + ' ' + safe.slice(-4000) + '\n',
+    new Date().toISOString() + ' ' + safeLog(message).slice(-4000) + '\n',
     { mode: 0o600 });
 }
 function changeBackToRepair(message) {
@@ -430,6 +441,14 @@ async function main() {
       if (old.branch !== branch) throw Error('Project branch changed since the last checkpoint. Review saved state first.');
       state = { ...state, ...old };
     }
+    if (state.completed && reopen) {
+      state.previousReleases ??= [];
+      state.previousReleases.push(state.completed);
+      state.completed = null;
+      state.production = null;
+      atomic(statePath, JSON.stringify(state, null, 2) + '\n');
+      atomic(file('next-task.md'), 'STATUS: WORK_IN_PROGRESS\n\nContinue with the NEW unfinished project requirements. Preserve all completed features.\n');
+    }
     if (state.completed) {
       console.log('This project was already verified live. DevCode will not restart or redeploy it.');
       return;
@@ -502,7 +521,7 @@ async function main() {
         stalls: workChanged ? 0 : state.stalls + 1,
         last: {
           at: new Date().toISOString(), exit: result.exit,
-          workChanged, details: (result.err || result.out).slice(-1200)
+          workChanged, details: safeLog(result.err || result.out).slice(-1200)
         }
       };
       appendFileSync(historyPath, JSON.stringify(state.last) + '\n', { mode: 0o600 });
