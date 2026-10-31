@@ -7,7 +7,7 @@ umask 077
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 if [[ $# -lt 1 ]]; then
   echo "Choose an existing project folder, for example:"
-  echo "  bash scripts/setup-devcode-on-thinkpad.sh \"$HOME/Projects/jobflow\""
+  echo "  bash scripts/setup-devcode-on-thinkpad.sh \"/full/path/to/existing/project\""
   exit 2
 fi
 [[ -d "$1" ]] || { echo "Project folder not found: $1" >&2; exit 2; }
@@ -60,29 +60,19 @@ echo "Existing project: $PROJECT"
 echo "Main local model: $MODEL"
 echo "Nothing will be rebuilt or erased."
 
-# A working executable named 'devcode', not the upstream CLI name.
-mkdir -p "$HOME/.local/bin"
-COMMAND="$HOME/.local/bin/devcode"
-if [[ -e "$COMMAND" ]]; then
-  cp -p "$COMMAND" "$COMMAND.backup-$(date +%Y%m%d%H%M%S)"
-fi
-printf '#!/usr/bin/env bash\nexec node %q/scripts/dev.js "$@"\n' "$ROOT" > "$COMMAND"
-chmod 755 "$COMMAND"
-echo "Installed the DevCode command at: $COMMAND"
+# Reuse the canonical DevCode launcher instead of creating a divergent wrapper.
+bash "$ROOT/scripts/install-devcode-command.sh"
 
-# Keep the old settings and the old project code. Only add DevCode names
-# alongside them, making the transition reversible.
-mkdir -p "$HOME/.devcode"
-if [[ ! -f "$HOME/.devcode/settings.json" && -f "$HOME/.qwen/settings.json" ]]; then
-  cp -p "$HOME/.qwen/settings.json" "$HOME/.devcode/settings.json"
-  echo "Made a copy of your existing settings under the DevCode name."
-fi
+# Prove the actual local model can edit code before enabling unattended work.
+node "$ROOT/scripts/devcode-local-proof.mjs" || {
+  echo "DevCode failed its local model editing proof. Factory not enabled." >&2
+  exit 2
+}
 
 # The new engine never starts a new project. It inspects this actual Git folder.
 node "$ROOT/scripts/devcode-project-continuity.mjs" --check
 
-# Install only one worker for the selected project. Existing JobFlow
-# service conflicts are detected by the installer; nothing is deleted.
+# Install the generic worker only for the explicitly selected project.
 bash "$ROOT/scripts/install-devcode-project-service.sh" "$PROJECT"
 
 echo
