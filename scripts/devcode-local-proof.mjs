@@ -54,7 +54,8 @@ async function main() {
   if (!models.data?.some((item) => item.id === model))
     throw Error('The selected model is not registered in Ollama: ' + model + '. Use ollama list.');
   writeFileSync(join(workspace, 'package.json'), '{"type":"module","scripts":{"test":"node --test add.test.mjs"}}\n');
-  writeFileSync(join(workspace, 'add.js'), 'export function add(a, b) {\n  return a - b; // BUG: change to addition\n}\n');
+  const originalSource = 'export function add(a, b) {\n  return a - b; // BUG: change to addition\n}\n';
+  writeFileSync(join(workspace, 'add.js'), originalSource);
   writeFileSync(join(workspace, 'add.test.mjs'),
     "import { test } from 'node:test';\nimport { strict as assert } from 'node:assert';\nimport { add } from './add.js';\ntest('addition', () => assert.equal(add(2, 3), 5));\n");
   git('init', '-q');
@@ -144,9 +145,10 @@ async function main() {
     cwd: workspace, encoding: 'utf8', timeout: 15000
   });
   log.write('\n=== INDEPENDENT TEST ===\n' + (test.stdout || '') + (test.stderr || ''));
-  const passed = test.status === 0 && /a\s*\+\s*b/.test(changed);
+  const edited = changed !== originalSource;
+  const passed = exitCode === 0 && !terminated && edited && test.status === 0;
   console.log('CLI exit=' + exitCode + '; tool events=' + events + '; code edited=' +
-    String(/a\s*\+\s*b/.test(changed)) + '; independent test=' + (test.status === 0 ? 'PASS' : 'FAIL'));
+    String(edited) + '; independent test=' + (test.status === 0 ? 'PASS' : 'FAIL'));
   if (passed) {
     console.log('PASS: real ' + model + ' → DevCode edit tool → file modification → passing Node test.');
   } else {
