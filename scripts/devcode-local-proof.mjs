@@ -67,7 +67,7 @@ async function main() {
     'Read add.js and add.test.mjs in the CURRENT directory.',
     'Fix the existing bug in add.js: add(2,3) must equal 5, not -1.',
     'USE your actual edit/write tool to change add.js. Do not merely describe a fix.',
-    'Then run node --test add.test.mjs with your terminal tool.',
+    'Do not use a shell tool; the independent checker will run the test after your edit.',
     'Do not touch files outside this disposable directory. Do not install packages,',
     'download anything, change Git branches, or edit user settings.',
     'Keep the response short.'
@@ -75,7 +75,7 @@ async function main() {
   const args = [
     join(root, 'scripts', 'dev.js'),
     '--auth-type', 'openai', '--model', model,
-    '--approval-mode', 'auto',
+    '--approval-mode', 'auto-edit',
     '--max-wall-time', '10m',
     '--max-tool-calls', '25',
     '--max-session-turns', '12',
@@ -87,7 +87,7 @@ async function main() {
     if (/(TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL|ACCESS_KEY|DEPLOY_KEY|AUTHORIZATION)/i.test(key) ||
         /^(DATABASE_URL|POSTGRES_URL|REDIS_URL|MYSQL_URL|MONGODB_URI)$/i.test(key)) delete env[key];
   }
-  console.log('Starting real CLI edit-and-test run; this tests tools, not just chat.');
+  console.log('Starting real CLI file-edit run; a separate checker will verify the test.');
   const began = Date.now();
   let stdoutBytes = 0, stderrBytes = 0, events = 0, details = '';
   let pending = '';
