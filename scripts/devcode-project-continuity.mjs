@@ -712,6 +712,7 @@ async function main() {
           ...prefix,
           '--auth-type', 'openai',
           '--model', model, '--fallback-model', model,
+          '--openai-base-url', url, '--openai-api-key', 'local-only',
           '--approval-mode', 'auto-edit', '--max-wall-time', sessionWallTime,
           '-p', prompt, '--output-format', 'stream-json'
         ], url);
