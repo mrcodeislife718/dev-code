@@ -333,3 +333,10 @@ test('model never inherits the production deployment approval or deploy credenti
   // The model is instructed to leave deploy permissions to the supervisor.
   assert.doesNotMatch(last, /VERCEL_TOKEN|private-test-token-00000/);
 });
+
+test('generic DevCode engine contains no former application-specific wiring', () => {
+  const runnerSource = readFileSync(runner, 'utf8');
+  const installSource = readFileSync(resolve(dirname(runner), 'install-devcode-project-service.sh'), 'utf8');
+  assert.doesNotMatch(runnerSource, /jobflow/i);
+  assert.doesNotMatch(installSource, /jobflow/i);
+});
