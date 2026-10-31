@@ -53,6 +53,27 @@ async function main() {
   const models = await response.json();
   if (!models.data?.some((item) => item.id === model))
     throw Error('The selected model is not registered in Ollama: ' + model + '. Use ollama list.');
+  // Fail quickly when Ollama explicitly reports a text-only model. Do not
+  // spend a whole CPU session waiting for tool calls it cannot produce.
+  try {
+    const info = await fetch(url.slice(0, -3) + '/api/show', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ model }),
+      signal: AbortSignal.timeout(15000)
+    });
+    if (info.ok) {
+      const capabilities = (await info.json()).capabilities;
+      if (Array.isArray(capabilities) && capabilities.length &&
+          !capabilities.includes('tools')) {
+        throw Error('Selected Ollama model has no tool-calling capability. Try the already-installed qwen3-coder:30b instead.');
+      }
+    }
+  } catch (error) {
+    if (/has no tool-calling capability/.test(error.message)) throw error;
+    console.warn('Ollama capabilities were unavailable; proceeding with the actual edit test.');
+  }
+
   writeFileSync(join(workspace, 'package.json'), '{"type":"module","scripts":{"test":"node --test add.test.mjs"}}\n');
   const originalSource = 'export function add(a, b) {\n  return a - b; // BUG: change to addition\n}\n';
   writeFileSync(join(workspace, 'add.js'), originalSource);
@@ -76,6 +97,7 @@ async function main() {
   const args = [
     join(root, 'scripts', 'dev.js'),
     '--auth-type', 'openai', '--model', model,
+    '--openai-base-url', url, '--openai-api-key', 'local-only',
     '--approval-mode', 'auto-edit',
     '--max-wall-time', '10m',
     '--max-tool-calls', '25',
@@ -85,7 +107,7 @@ async function main() {
   const env = { ...process.env, OPENAI_BASE_URL: url, OPENAI_API_KEY: 'local-only', OPENAI_MODEL: model };
   // Never give a test worker inherited deployment credentials.
   for (const key of Object.keys(env)) {
-    if (/(TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL|ACCESS_KEY|DEPLOY_KEY|AUTHORIZATION)/i.test(key) ||
+    if ((/(TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL|ACCESS_KEY|DEPLOY_KEY|AUTHORIZATION)/i.test(key) && key !== 'OPENAI_API_KEY') ||
         /^(DATABASE_URL|POSTGRES_URL|REDIS_URL|MYSQL_URL|MONGODB_URI)$/i.test(key)) delete env[key];
   }
   console.log('Starting real CLI file-edit run; a separate checker will verify the test.');
