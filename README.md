@@ -26,33 +26,38 @@ For a convenient `devcode` terminal command on the ThinkPad, use the setup
 script below. This changes the user-facing launcher but does not replace the
 existing source or erase provider settings.
 
-## Continue an existing project
+## Prove your local 30B model can really code
 
-Run these commands from your **current DevCode checkout**:
+Before enabling an unattended factory, verify the model can edit a real file
+and pass a real test **through DevCode**. This uses a disposable test project;
+it does not modify any existing application.
 
 ```bash
-node --test scripts/tests/devcode-project-continuity.test.mjs
-bash scripts/setup-devcode-on-thinkpad.sh "$HOME/Projects/jobflow"
+export OPENAI_MODEL="devcode-coder:8k"
+export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+node scripts/devcode-local-proof.mjs
 ```
 
-The example above continues JobFlow, provided that directory actually exists.
-For any other existing project, replace the last path with that project's
-actual directory. The setup never creates a fresh product to replace one you
-already built.
+The test fails if the CLI only chats, cannot use editing tools, or fails
+the independent test. It downloads no model or packages and does not deploy.
 
-Each project stores its own continuation records inside
-`.devcode-factory/`, including `mission.md`, `progress.md`,
-`next-task.md`, `decisions.md`, `evidence.md`, and `blockers.md`.
-Those records are not erased when the model starts a new conversation.
+## Continue a project when its actual requirements are ready
 
-To check a project without changing code:
+Once the local editing proof passes, choose the Git repository you actually
+want DevCode to work on. There is no hardcoded application name.
 
 ```bash
-export DEVCODE_PROJECT_DIR="$HOME/Projects/jobflow"
+export DEVCODE_PROJECT_DIR="/full/path/to/your/existing/project"
 export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
-export OPENAI_MODEL="YOUR_EXISTING_LOCAL_MODEL_NAME"
+export OPENAI_MODEL="devcode-coder:8k"
 node scripts/devcode-project-continuity.mjs --check
 ```
+
+Only after confirming the target and its real requirements should you install
+the optional always-on service with `scripts/install-devcode-project-service.sh`.
+
+Each project stores independent continuation records inside
+`.devcode-factory/`. The runner does not erase existing code or history.
 
 ## Project instructions
 
