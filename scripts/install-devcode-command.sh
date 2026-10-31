@@ -27,7 +27,7 @@ case "\${1:-}" in
     exec $QNODE $QROOT "\$@"
     ;;
   *)
-    exec $QNODE $QROOT --auth-type openai --model "\$OPENAI_MODEL" "\$@"
+    exec $QNODE $QROOT --auth-type openai --model "\$OPENAI_MODEL" --openai-base-url "\$OPENAI_BASE_URL" --openai-api-key local-only "\$@"
     ;;
 esac
 SCRIPT
