@@ -17,8 +17,19 @@ printf -v QNODE '%q' "$NODE"
 printf -v QROOT '%q' "$ROOT/scripts/dev.js"
 cat > "$COMMAND" <<SCRIPT
 #!/usr/bin/env bash
+# DevCode uses only the already installed local 30B Ollama model.
 export DEVCODE_HOME="\$HOME/.devcode"
-exec $QNODE $QROOT "\$@"
+export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
+export OPENAI_MODEL="\${OPENAI_MODEL:-devcode-coder:8k}"
+export OPENAI_API_KEY="local-only"
+case "\${1:-}" in
+  auth|mcp|serve|daemon|sessions|agents|batch|board|update|sandbox|extensions|hooks|channel)
+    exec $QNODE $QROOT "\$@"
+    ;;
+  *)
+    exec $QNODE $QROOT --auth-type openai --model "\$OPENAI_MODEL" "\$@"
+    ;;
+esac
 SCRIPT
 chmod 700 "$COMMAND"
 PROFILE="$HOME/.profile"
