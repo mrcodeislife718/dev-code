@@ -683,7 +683,7 @@ async function main() {
         'If the project has additional progress notes or records,',
         'incorporate those actually present without importing unrelated project assumptions.',
         'Implement exactly the next unfinished meaningful task.',
-        'Use native DevCode file, search and terminal tools; make real edits.',
+        'Use native DevCode file editing and search tools; make real edits.',
         'Do not merely describe commands or output shell scripts as a substitute.',
         ...(state.stalls >= 3 ? [
           'RECOVERY: previous rounds showed no measurable progress.',
@@ -712,7 +712,7 @@ async function main() {
           ...prefix,
           '--auth-type', 'openai',
           '--model', model, '--fallback-model', model,
-          '--approval-mode', 'auto', '--max-wall-time', sessionWallTime,
+          '--approval-mode', 'auto-edit', '--max-wall-time', sessionWallTime,
           '-p', prompt, '--output-format', 'stream-json'
         ], url);
       } finally {
