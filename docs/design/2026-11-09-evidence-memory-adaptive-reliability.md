@@ -5,7 +5,7 @@ Sources:
 - https://www.doubleai.com/research/can-llms-redesign-themselves-as-they-train
 
 ## Status and boundaries
-This branch adds a **standalone experimental reliability utility**, not a wired-in production harness or neural-weight self-redesign. Do not claim automatic self-improvement or production integration until the managed runtime invokes and tests it.
+The factory supervisor and JobFlow checks now emit host-observed revision evidence. The memory utility requires matching host proof to promote a fix. The strategy evaluator is an owner-reviewed comparison tool, not neural-weight self-redesign, and full production end-to-end verification still requires actual runs.
 
 ## Engineering interpretation
 1. Preserve original evidence append-only; promote only checked fixes into compact, searchable notes.
@@ -22,7 +22,7 @@ This branch adds a **standalone experimental reliability utility**, not a wired-
 node --test scripts/reliability/evidence-memory.test.mjs
 export DEVCODE_RELIABILITY_DIR=.devcode-factory/reliability
 cat > /tmp/devcode-event.json <<'JSON'
-{"kind":"verified-fix","project":"devcode","subject":"restart-resume","claim":"Resume verified after restart","evidence":"test:restart-resume run identifier","checks":["restart-resume integration test"]}
+{"kind":"verified-fix","project":"devcode","subject":"restart-resume","claim":"Resume verified after restart","evidence":"test:restart-resume run identifier","checks":["restart-resume integration test"],"host_proof_id":"ID_FROM_HOST_EVENTS_JSONL","revision":"MATCHING_REVISION"}
 JSON
 node scripts/reliability/evidence-memory.mjs record /tmp/devcode-event.json
 node scripts/reliability/evidence-memory.mjs distill
@@ -41,3 +41,5 @@ Metrics JSON for `compare`: `{"passed":10,"failed":0,"duration_ms":1000}`. Both 
 
 ## Scientific caution
 DoubleAI's reported results concern training-time neural code layers and probe-guided policies. This utility adapts **harness decisions**, not model weights. Its effectiveness for DevCode remains unmeasured until controlled evaluation.
+
+The `evaluate-strategy` command requires separate baseline and candidate JSON metrics (`passed`, `failed`, `durationMs`, `proofId`, `revision`) with corresponding host-observed events. Its result is eligible for owner review, not automatic strategy promotion. Existing deferred-tool search is in `packages/core/src/tools/tool-search.ts`. Scoped worker leases do not constitute a filesystem sandbox: maintain one worker by default, and do not enable concurrent editing without tool-boundary write enforcement.

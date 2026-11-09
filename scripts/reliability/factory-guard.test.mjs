@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appendHostEvent, readVerifiedContext, verificationGate, assessLoop,
@@ -56,4 +57,17 @@ test('tool discovery exposes metadata only and caps output', () => {
   const tools = [{ name: 'grep', description: 'search code', tier: 'core' },
     { name: 'web', description: 'search web', tier: 'deferred' }];
   assert.deepEqual(searchToolCatalog(tools, 'search code').map(x => x.name), ['grep']);
+});
+
+test('host evidence survives abrupt SIGKILL before a new supervisor process', () => {
+  const root = mkdtempSync(join(tmpdir(), 'guard-kill-'));
+  try {
+    const url = new URL('./factory-guard.mjs', import.meta.url).href;
+    const script = "import {appendHostEvent} from " + JSON.stringify(url) +
+      "; appendHostEvent(" + JSON.stringify(root) +
+      ", {type:'verified-checks',revision:'restart-rev',passed:true}); process.kill(process.pid,'SIGKILL');";
+    const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+    assert.equal(child.signal, 'SIGKILL', child.stderr);
+    assert.match(readVerifiedContext(root, 'restart-rev'), /current/);
+  } finally { rmSync(root, { recursive: true, force: true }); }
 });
