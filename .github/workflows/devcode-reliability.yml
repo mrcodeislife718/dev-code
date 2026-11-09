@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  statuses: write
 
 jobs:
   reliability:
@@ -27,3 +28,15 @@ jobs:
           node --test scripts/reliability/*.test.mjs
       - name: Supervisor recovery tests
         run: node --test scripts/tests/devcode-project-continuity.test.mjs
+
+      - name: Report host-observed CI outcome
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+          TARGET_SHA: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$RESULT" == "success" ]]; then state=success; else state=failure; fi
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA"             -f state="$state" -f context="devcode/reliability"             -f description="Host-run syntax, reliability and supervisor tests: $RESULT"
