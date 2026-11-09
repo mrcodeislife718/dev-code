@@ -6,7 +6,7 @@
  */
 
 /**
- * Development entry point for Qwen Code CLI.
+ * Development entry point for DevCode CLI.
  *
  * Runs the CLI from TypeScript source with prebuilt workspace dependencies.
  * Changes to packages/core or packages/cli are reflected immediately.
@@ -63,7 +63,7 @@ if (existsSync(userDocsTarget) && !existsSync(qcHelperDocsLink)) {
 const cliEntry = join(cliPackageDir, 'index.ts');
 
 // Create a temporary loader file
-const tmpDir = mkdtempSync(join(tmpdir(), 'qwen-dev-'));
+const tmpDir = mkdtempSync(join(tmpdir(), 'devcode-dev-'));
 const loaderPath = join(tmpDir, 'loader.mjs');
 
 const coreDir = join(root, 'packages', 'core');

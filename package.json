@@ -38,6 +38,7 @@
     "sandboxImageUri": "ghcr.io/qwenlm/qwen-code:0.25.3"
   },
   "scripts": {
+    "devcode": "node scripts/dev.js",
     "start": "node scripts/start.js",
     "dev": "node scripts/dev.js",
     "dev:daemon": "node scripts/daemon-dev.js",
@@ -134,7 +135,9 @@
     "check:core-subpath-exports": "node scripts/check-core-subpath-exports.mjs",
     "check:serve-fast-path-bundle": "node scripts/clean-package-build-artifacts.js && npm run build -- --cli-only && cross-env DEV=true npm run bundle && node scripts/check-serve-fast-path-bundle.js",
     "clean": "node scripts/clean.js",
-    "pre-commit": "node scripts/pre-commit.js"
+    "pre-commit": "node scripts/pre-commit.js",
+    "jobflow:factory": "node scripts/jobflow-factory.mjs",
+    "test:jobflow-factory": "node --test scripts/jobflow-factory.test.mjs"
   },
   "overrides": {
     "brace-expansion@1": "1.1.21",
@@ -243,5 +246,7 @@
     "*.{mjs,cjs,json,md,yml,yaml,css,html}": [
       "prettier --write"
     ]
-  }
+  },
+  "description": "DevCode — local-first autonomous engineering factory",
+  "displayName": "DevCode"
 }

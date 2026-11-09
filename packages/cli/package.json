@@ -2,7 +2,7 @@
   "name": "@qwen-code/qwen-code",
   "private": true,
   "version": "0.25.3",
-  "description": "Qwen Code",
+  "description": "DevCode — autonomous AI software engineering factory",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/QwenLM/qwen-code.git"
@@ -11,6 +11,7 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "bin": {
+    "devcode": "dist/index.js",
     "qwen": "dist/index.js"
   },
   "exports": {

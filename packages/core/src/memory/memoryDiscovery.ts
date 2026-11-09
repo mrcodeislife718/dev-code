@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import {
   getAllMemoryFilenames,
   LOCAL_CONTEXT_FILENAME,
+  LEGACY_LOCAL_CONTEXT_FILENAME,
 } from '../utils/memory-constants.js';
 import type { FileDiscoveryService } from '../services/fileDiscoveryService.js';
 import { processImports } from '../utils/memoryImportProcessor.js';
@@ -555,21 +556,23 @@ export async function loadServerHierarchicalMemory(
   //   * `cwd === homedir` resolves the slot path to `~/.qwen/QWEN.local.md`,
   //     colliding with the global Qwen directory.
   if (implicitDiscoveryEnabled && folderTrust && foundRoot) {
-    const localContextPath = path.join(
-      foundRoot,
-      QWEN_DIR,
-      LOCAL_CONTEXT_FILENAME,
-    );
-    try {
-      await fs.access(localContextPath, fsSync.constants.R_OK);
-      if (!filePaths.includes(localContextPath)) {
-        filePaths.push(localContextPath);
-        logger.debug(
-          `Found readable local ${LOCAL_CONTEXT_FILENAME}: ${localContextPath}`,
-        );
+    // Preserve pre-rename personal instructions and recognize the DevCode path.
+    // Load legacy first so new DEVCODE.local.md takes precedence.
+    const localCandidates = [
+      path.join(foundRoot, QWEN_DIR, LEGACY_LOCAL_CONTEXT_FILENAME),
+      path.join(foundRoot, QWEN_DIR, LOCAL_CONTEXT_FILENAME),
+      path.join(foundRoot, '.devcode', LOCAL_CONTEXT_FILENAME),
+    ];
+    for (const localContextPath of localCandidates) {
+      try {
+        await fs.access(localContextPath, fsSync.constants.R_OK);
+        if (!filePaths.includes(localContextPath)) {
+          filePaths.push(localContextPath);
+          logger.debug('Found readable DevCode local instructions: ' + localContextPath);
+        }
+      } catch {
+        // Not found — it is normal for a project to use only one filename.
       }
-    } catch {
-      // Not found, which is the common case — silently skip.
     }
   }
 

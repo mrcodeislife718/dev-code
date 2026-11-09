@@ -1,8 +1,8 @@
 {
   "name": "qwen-code-vscode-ide-companion",
   "private": true,
-  "displayName": "Qwen Code Companion",
-  "description": "Enable Qwen Code with direct access to your VS Code workspace.",
+  "displayName": "DevCode Companion",
+  "description": "DevCode integration for your VS Code workspace.",
   "version": "0.25.3",
   "publisher": "qwenlm",
   "icon": "assets/icon.png",
@@ -47,7 +47,7 @@
       "activitybar": [
         {
           "id": "qwen-code-sidebar",
-          "title": "Qwen Code",
+          "title": "DevCode",
           "icon": "assets/sidebar-icon.svg"
         }
       ]
@@ -57,7 +57,7 @@
         {
           "type": "webview",
           "id": "qwen-code.chatView.sidebar",
-          "name": "Qwen Code",
+          "name": "DevCode",
           "icon": "assets/sidebar-icon.svg"
         }
       ]
@@ -70,42 +70,42 @@
     "commands": [
       {
         "command": "qwen.diff.accept",
-        "title": "Qwen Code: Accept Current Diff",
+        "title": "DevCode: Accept Current Diff",
         "icon": "$(check)"
       },
       {
         "command": "qwen.diff.cancel",
-        "title": "Qwen Code: Close Diff Editor",
+        "title": "DevCode: Close Diff Editor",
         "icon": "$(close)"
       },
       {
         "command": "qwen-code.runQwenCode",
-        "title": "Qwen Code: Run"
+        "title": "DevCode: Run"
       },
       {
         "command": "qwen-code.showNotices",
-        "title": "Qwen Code: View Third-Party Notices"
+        "title": "DevCode: View Third-Party Notices"
       },
       {
         "command": "qwen-code.openChat",
-        "title": "Qwen Code: Open",
+        "title": "DevCode: Open",
         "icon": "./assets/icon.png"
       },
       {
         "command": "qwen-code.auth",
-        "title": "Qwen Code: Auth"
+        "title": "DevCode: Auth"
       },
       {
         "command": "qwen-code.focusChat",
-        "title": "Qwen Code: Focus Chat View"
+        "title": "DevCode: Focus Chat View"
       },
       {
         "command": "qwen-code.newConversation",
-        "title": "Qwen Code: New Conversation"
+        "title": "DevCode: New Conversation"
       },
       {
         "command": "qwen-code.showLogs",
-        "title": "Qwen Code: Show Logs"
+        "title": "DevCode: Show Logs"
       },
       {
         "command": "qwen-code.copyMessage",
@@ -181,7 +181,7 @@
       ]
     },
     "configuration": {
-      "title": "Qwen Code",
+      "title": "DevCode",
       "properties": {
         "qwen-code.provider": {
           "order": 0,
@@ -192,16 +192,16 @@
           ],
           "enumDescriptions": [
             "Alibaba Cloud Coding Plan — configurable from VS Code Settings",
-            "Configured via Qwen Code: Auth or the onboarding button"
+            "Configured via DevCode: Auth or the onboarding button"
           ],
           "default": "coding-plan",
-          "markdownDescription": "**Coding Plan**: enter API Key + Region here to sync `~/.qwen/settings.json`.\n\n**API Key**: use **Qwen Code: Auth** or the onboarding button to configure ModelStudio or custom OpenAI-compatible providers."
+          "markdownDescription": "**Coding Plan**: enter API Key + Region here to sync `~/.qwen/settings.json`.\n\n**API Key**: use **DevCode: Auth** or the onboarding button to configure ModelStudio or custom OpenAI-compatible providers."
         },
         "qwen-code.apiKey": {
           "order": 1,
           "type": "string",
           "default": "",
-          "markdownDescription": "API key used for **Coding Plan** settings sync. For **API Key** providers, configure the full provider details through **Qwen Code: Auth**."
+          "markdownDescription": "API key used for **Coding Plan** settings sync. For **API Key** providers, configure the full provider details through **DevCode: Auth**."
         },
         "qwen-code.codingPlanRegion": {
           "order": 2,
@@ -227,7 +227,7 @@
           "order": 4,
           "type": "boolean",
           "default": true,
-          "description": "Show notifications with sound when a task completes (at least 20 seconds) or needs your attention, while you are not actively viewing the Qwen Code panel."
+          "description": "Show notifications with sound when a task completes (at least 20 seconds) or needs your attention, while you are not actively viewing the DevCode panel."
         }
       }
     },

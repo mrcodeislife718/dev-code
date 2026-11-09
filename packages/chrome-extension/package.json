@@ -1,7 +1,7 @@
 {
   "name": "@qwen-code/chrome-bridge",
   "version": "0.25.3",
-  "description": "Chrome extension bridge for Qwen CLI - enables AI-powered browser interactions",
+  "description": "DevCode browser connection for engineering workflows",
   "private": true,
   "repository": {
     "type": "git",

@@ -336,7 +336,7 @@ export default {
   'For a full list of shortcuts, see {{docPath}}':
     'For a full list of shortcuts, see {{docPath}}',
   'docs/keyboard-shortcuts.md': 'docs/keyboard-shortcuts.md',
-  'for help on Qwen Code': 'for help on Qwen Code',
+  'for help on Qwen Code': 'for help on DevCode',
   'show version info': 'show version info',
   'show paths for current session files and logs':
     'show paths for current session files and logs',
@@ -346,7 +346,7 @@ export default {
   // ============================================================================
   // System Information Fields
   // ============================================================================
-  'Qwen Code': 'Qwen Code',
+  'Qwen Code': 'DevCode',
   Runtime: 'Runtime',
   OS: 'OS',
   Auth: 'Auth',
@@ -402,7 +402,7 @@ export default {
   '↑/↓ navigate · backspace edits search':
     '↑/↓ navigate · backspace edits search',
   Bundled: 'Bundled',
-  'Available Qwen Code CLI tools:': 'Available Qwen Code CLI tools:',
+  'Available Qwen Code CLI tools:': 'Available DevCode CLI tools:',
   'No tools available': 'No tools available',
   'View or change the approval mode for tool usage':
     'View or change the approval mode for tool usage',
@@ -751,7 +751,7 @@ export default {
   // ============================================================================
   // Commands - General (continued)
   // ============================================================================
-  'View and edit Qwen Code settings': 'View and edit Qwen Code settings',
+  'View and edit Qwen Code settings': 'View and edit DevCode settings',
   Settings: 'Settings',
   'To see changes, Qwen Code must be restarted. Press r to exit and apply changes now.':
     'To see changes, Qwen Code must be restarted. Press r to exit and apply changes now.',
@@ -1112,7 +1112,7 @@ export default {
   // ============================================================================
   // Commands - Hooks
   // ============================================================================
-  'Manage Qwen Code hooks': 'Manage Qwen Code hooks',
+  'Manage Qwen Code hooks': 'Manage DevCode hooks',
   'List all configured hooks': 'List all configured hooks',
   // Hooks - Dialog
   Hooks: 'Hooks',
@@ -2609,7 +2609,7 @@ export default {
     'Already in plan mode. Use "/plan exit" to exit plan mode.',
   'Not in plan mode. Use "/plan" to enter plan mode first.':
     'Not in plan mode. Use "/plan" to enter plan mode first.',
-  "Set up Qwen Code's status line UI": "Set up Qwen Code's status line UI",
+  "Set up Qwen Code's status line UI": "Set up DevCode's status line UI",
 
   // === Core: added from PR #3328 ===
   'Open the memory manager.': 'Open the memory manager.',
