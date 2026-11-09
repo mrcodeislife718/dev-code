@@ -23,7 +23,10 @@ test('host checks must pass against the final revision', () => {
 
 test('masked shell exits are not verification evidence', () => {
   assert.equal(safeCheckCommand('npm test || true'), false);
-  assert.equal(safeCheckCommand('npm test | tee out.log'), true); // bash pipefail must be used by the host
+  assert.equal(safeCheckCommand('npm test | tee out.log'), false);
+  assert.equal(safeCheckCommand('npm test || echo ok'), false);
+  assert.equal(safeCheckCommand('npm test && echo success'), false);
+  assert.equal(safeCheckCommand('npm test'), true);
   assert.equal(safeCheckCommand('npm test; true'), false);
 });
 

@@ -43,3 +43,5 @@ Metrics JSON for `compare`: `{"passed":10,"failed":0,"duration_ms":1000}`. Both 
 DoubleAI's reported results concern training-time neural code layers and probe-guided policies. This utility adapts **harness decisions**, not model weights. Its effectiveness for DevCode remains unmeasured until controlled evaluation.
 
 The `evaluate-strategy` command requires separate baseline and candidate JSON metrics (`passed`, `failed`, `durationMs`, `proofId`, `revision`) with corresponding host-observed events. Its result is eligible for owner review, not automatic strategy promotion. Existing deferred-tool search is in `packages/core/src/tools/tool-search.ts`. Scoped worker leases do not constitute a filesystem sandbox: maintain one worker by default, and do not enable concurrent editing without tool-boundary write enforcement.
+
+Release verification accepts only simple host commands; pipelines/chaining and shell substitutions are rejected. Multi-step checks belong in version-controlled package scripts, whose real exit codes the host must observe.

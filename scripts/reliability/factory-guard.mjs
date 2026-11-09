@@ -12,8 +12,10 @@ const journalName = 'host-events.jsonl';
 
 export function safeCheckCommand(command) {
   if (typeof command !== 'string' || !command.trim() || command.length > 4096) return false;
-  // Shell's exit-code masking must not certify a build or test.
-  if (/(?:\|\|\s*(?:true|:)(?:\s|$)|;\s*(?:true|:)(?:\s|$)|\|\s*true(?:\s|$))/i.test(command)) return false;
+  // Only simple, direct host commands can certify a release. Complex shell
+  // pipelines, substitutions and chaining can mask a failing test exit code.
+  // Put multi-step logic in a versioned package script and invoke that script.
+  if (/[;&|><`$\\n\\r]/.test(command)) return false;
   return true;
 }
 
