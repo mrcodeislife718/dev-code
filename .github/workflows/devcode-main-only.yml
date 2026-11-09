@@ -1,0 +1,65 @@
+name: DevCode main-only branch policy
+
+# Explicit one-time cleanup of the three verified historical branches.
+# Later pushes also reject new branch sprawl; they do not delete unknown work.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: devcode-main-only
+  cancel-in-progress: false
+
+jobs:
+  main-only:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out current main with complete history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Remove only fully integrated historical branches
+        shell: bash
+        run: |
+          set -euo pipefail
+          while read -r branch expected; do
+            [[ -n "$branch" ]] || continue
+            remote_sha="$(git ls-remote --heads origin "refs/heads/$branch" | awk '{print $1}')"
+            if [[ -z "$remote_sha" ]]; then
+              echo "Already absent: $branch"
+              continue
+            fi
+            if [[ "$remote_sha" != "$expected" ]]; then
+              echo "::error::Refusing to delete $branch: it moved since consolidation."
+              exit 1
+            fi
+            git fetch --no-tags origin "+refs/heads/$branch:refs/remotes/origin/$branch"
+            if ! git merge-base --is-ancestor "$remote_sha" HEAD; then
+              echo "::error::Refusing to delete $branch: its work is not fully in main."
+              exit 1
+            fi
+            git push --force-with-lease="refs/heads/$branch:$remote_sha" origin ":refs/heads/$branch"
+            echo "Deleted integrated branch: $branch"
+          done <<'BRANCHES'
+          jobflow-completion-runner-20261028 0394ffbd83a7624591a79283b57b9e473d62f7e1
+          feat/jobflow-production-factory-20261028 1f0765fc4ce7d2811b57bb573da3a26c8eb35a57
+          feat/evidence-memory-adaptive-reliability-20261109 1c9b76898eeb64957c3b2fe01e2a3b83afbd232b
+          BRANCHES
+
+      - name: Enforce main as the only remaining remote branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          refs="$(git ls-remote --heads origin | awk '{print $2}')"
+          if [[ "$refs" != "refs/heads/main" ]]; then
+            echo "::error::DevCode branch policy violation. Expected only main, found:"
+            printf '%s\n' "$refs"
+            exit 1
+          fi
+          echo "DevCode branch policy verified: main only."
