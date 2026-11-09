@@ -639,6 +639,19 @@ async function main() {
       if (old.branch !== branch) throw Error('Project branch changed since the last checkpoint. Review saved state first.');
       state = { ...state, ...old };
     }
+    if (state.needsReview && reopen) {
+      state.reviewHistory ??= [];
+      state.reviewHistory.push(state.needsReview);
+      state.needsReview = null;
+      state.stalls = 0;
+      state.loopHistory = [];
+      atomic(statePath, JSON.stringify(state, null, 2) + '\n');
+    }
+    if (state.needsReview) {
+      console.error('Factory paused pending owner review: ' + state.needsReview.reason +
+        '. Inspect blockers.md and resume intentionally with --reopen.');
+      return;
+    }
     if (state.completed && reopen) {
       state.previousReleases ??= [];
       state.previousReleases.push(state.completed);

@@ -245,15 +245,19 @@ test('watchdog ends a hanging model round, keeps project and clears its lock', a
 
 test('repeated unproductive work is reported and does not loop indefinitely', async (t) => {
   const f = await setup(t, { changes: false });
-  for (let n = 0; n < 6; n++) {
+  for (let n = 0; n < 5; n++) {
     const r = await f.run([], { DEVCODE_MAX_STALLED_ROUNDS: '6' });
     assert.equal(r.code, 0, r.output);
-    if (n === 5) assert.match(r.output, /Factory paused/);
+    if (n === 4) assert.match(r.output, /Factory paused/);
   }
   const memory = join(f.root, '.devcode-factory');
   const state = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
-  assert.equal(state.rounds, 6);
-  assert.equal(state.needsReview.reason, 'repeated-no-progress');
+  assert.equal(state.rounds, 5);
+  assert.equal(state.needsReview.reason, 'repeated-identical-failure');
+  const blocked = await f.run([], { DEVCODE_MAX_STALLED_ROUNDS: '6' });
+  assert.match(blocked.output, /Factory paused pending owner review/);
+  const after = JSON.parse(readFileSync(join(memory, 'state.json'), 'utf8'));
+  assert.equal(after.rounds, 5, 'restart must not repeat failed work');
   assert.match(readFileSync(join(memory, 'blockers.md'), 'utf8'), /new approach or owner input/);
   assert.match(readFileSync(join(f.root, 'app.js'), 'utf8'), /Project exists/);
 });
@@ -339,4 +343,17 @@ test('generic DevCode engine contains no former application-specific wiring', ()
   const installSource = readFileSync(resolve(dirname(runner), 'install-devcode-project-service.sh'), 'utf8');
   assert.doesNotMatch(runnerSource, /jobflow/i);
   assert.doesNotMatch(installSource, /jobflow/i);
+});
+
+test('owner can explicitly reopen a paused factory without losing its history', async (t) => {
+  const f = await setup(t, { changes: false });
+  for (let i = 0; i < 5; i++) await f.run();
+  const before = JSON.parse(readFileSync(join(f.root, '.devcode-factory', 'state.json'), 'utf8'));
+  assert.equal(before.needsReview.reason, 'repeated-identical-failure');
+  const reopened = await f.run(['--reopen']);
+  assert.equal(reopened.code, 0, reopened.output);
+  const after = JSON.parse(readFileSync(join(f.root, '.devcode-factory', 'state.json'), 'utf8'));
+  assert.equal(after.rounds, 6);
+  assert.equal(after.needsReview, null);
+  assert.equal(after.reviewHistory.length, 1);
 });
