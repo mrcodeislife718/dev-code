@@ -12,6 +12,7 @@ import {
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { appendHostEvent } from './reliability/factory-guard.mjs';
 
 const self = fileURLToPath(import.meta.url);
 const factoryRoot = resolve(dirname(self), '..');
@@ -196,6 +197,7 @@ async function captureProcess(command, args, options) {
 export async function verifyProject(project, dir) {
   const pkg = JSON.parse(readFileSync(join(project, 'package.json'), 'utf8'));
   const results = [];
+  const sourceRevision = gitFingerprint(project);
   const evidence = join(dir, 'evidence');
   mkdirSync(evidence, { recursive: true });
   for (const check of listChecks(pkg)) {
@@ -208,13 +210,18 @@ export async function verifyProject(project, dir) {
     const run = await captureProcess('npm', ['run', check.script], {
       cwd: project, log, echo: false,
     });
+    const afterRevision = gitFingerprint(project);
+    const passed = run.code === 0 && sourceRevision === afterRevision;
+    appendHostEvent(project, { type: 'check', revision: sourceRevision, check: check.id, passed });
     results.push({
-      id: check.id, result: run.code === 0 ? 'passed' : 'failed',
+      id: check.id, result: passed ? 'passed' : 'failed',
       exitCode: run.code, script: check.script, log,
-      testedAt: new Date().toISOString(),
+      sourceRevision, afterRevision, testedAt: new Date().toISOString(),
     });
   }
-  const allPassed = results.every((item) => item.result === 'passed');
+  const allPassed = results.length > 0 && results.every((item) => item.result === 'passed') &&
+    gitFingerprint(project) === sourceRevision;
+  if (allPassed) appendHostEvent(project, { type: 'verified-checks', revision: sourceRevision, passed: true });
   const summary = { verifiedAt: new Date().toISOString(), allPassed, checks: results };
   atomicJson(join(dir, 'verification.json'), summary);
   return summary;

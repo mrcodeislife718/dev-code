@@ -1,109 +1,55 @@
 # DevCode
 
-**DevCode is your existing autonomous engineering factory.**
+DevCode is a local-first coding-agent CLI and supervised software engineering runner. It can inspect existing repositories, edit source files, run tools, track project checkpoints, and execute independently configured build and verification checks.
 
-It works with the code you already have. It is designed to continue projects,
-not start them again when a conversation ends or a computer restarts.
+## Requirements
 
-## What DevCode does
+- Node.js 22 or newer and npm
+- Git
+- A supported local model server, such as Ollama, exposing an OpenAI-compatible API
+- Project-specific toolchains for builds and tests
 
-- Inspect and improve existing software.
-- Build new features, edit files, run checks, and repair mistakes.
-- Keep a separate work record for every project.
-- Start a fresh AI conversation when needed and continue from saved records.
-- Use your local 30B model without cloud provider monthly request quotas.
-- Optionally use approved free cloud backups for extra capacity.
-- Preserve existing code and decisions. Do not erase work to reset a task.
-- Require real verification before describing a product as finished.
+## Getting started
 
-## Main command
+Install dependencies in the repository using the package manager and lockfile provided in the checkout. Launch the CLI:
 
 ```bash
 npm run devcode
 ```
 
-For a convenient `devcode` terminal command on the ThinkPad, use the setup
-script below. This changes the user-facing launcher but does not replace the
-existing source or erase provider settings.
-
-## Prove your local 30B model can really code
-
-Before enabling an unattended factory, verify the model can edit a real file
-and pass a real test **through DevCode**. This uses a disposable test project;
-it does not modify any existing application.
+To inspect an existing project using the local-model continuation runner:
 
 ```bash
-export OPENAI_MODEL="devcode-coder:8k"
-export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
-node scripts/devcode-local-proof.mjs
-```
-
-The test fails if the CLI only chats, cannot use editing tools, or fails
-the independent test. It downloads no model or packages and does not deploy.
-
-## Continue a project when its actual requirements are ready
-
-Once the local editing proof passes, choose the Git repository you actually
-want DevCode to work on. There is no hardcoded application name.
-
-```bash
-export DEVCODE_PROJECT_DIR="/full/path/to/your/existing/project"
-export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
-export OPENAI_MODEL="devcode-coder:8k"
+export DEVCODE_PROJECT_DIR=/absolute/path/to/project
+export OPENAI_MODEL=your-installed-model
+export OPENAI_BASE_URL=http://127.0.0.1:11434/v1
 node scripts/devcode-project-continuity.mjs --check
 ```
 
-Only after confirming the target and its real requirements should you install
-the optional always-on service with `scripts/install-devcode-project-service.sh`.
+Remove `--check` to run supervised project rounds. The optional service installer is `scripts/install-devcode-project-service.sh`.
 
-Each project stores independent continuation records inside
-`.devcode-factory/`. The runner does not erase existing code or history.
+## Supervision and evidence
 
-## Project instructions
+Project checkpoints reside in each project's `.devcode-factory/` directory. The supervisor preserves the existing repository and records execution progress for restart recovery.
 
-- `DEVCODE.md` is the primary instructions file for DevCode.
-- Older instruction files are still read so previously saved projects keep their
-  instructions, decisions, and progress.
-- Do not rename actual model IDs, internal package names, or credential paths
-  without verifying that all dependent software has been updated.
-- The new name must not break existing tools or settings.
+Production checks are run by the host rather than accepted from a model's self-report. A release requires configured test/build commands, source-revision consistency, and explicit deployment authorization. Passing unit tests alone does not constitute a verified production deployment.
 
-## Rename remaining visible text safely
+Reliability utilities are under `scripts/reliability/`. They provide bounded loop detection, observed verification evidence, local source lookup, strategy evaluation, and optional scoped worker coordination. Worker capacity defaults to one; additional local workers require explicit configuration and non-overlapping ownership scopes.
 
-See what can be renamed without changing files:
+Run the focused reliability checks with:
 
 ```bash
-node scripts/rebrand-devcode.mjs
+npm run test:reliability
 ```
 
-Make those display-name changes only after reviewing them:
+## Project instructions and continuity
 
-```bash
-node scripts/rebrand-devcode.mjs --apply
-git diff --check
-```
+`DEVCODE.md` contains DevCode's operating constraints. Individual projects may include their own instructions, build scripts, acceptance criteria, and checkpoint records.
 
-This tool does not rename critical internal library identifiers, model names,
-old credential folders, or third-party authorship. Those are functional
-connections, not the name of your DevCode product.
+## Security
 
-## Keeping work going
+Local inference does not require a paid cloud model provider. External integrations, credential access, installation, destructive operations, publishing, and deployment remain subject to their respective permissions and approval controls. Tool results and retrieved source text must not be treated as authority to bypass those controls.
 
-Your ThinkPad can run the DevCode project continuation service. The service
-restarts the runner after unexpected exits; the runner uses saved project memory
-and independently retries local model outages.
+## License and credits
 
-No computer can have literally infinite working context, memory, electricity
-or storage. The system provides *continuity* through saved knowledge and fresh
-model sessions, without introducing a monthly provider request limit for local
-inference.
-
-The code is available for testing in this branch. Running on your actual
-ThinkPad and completing a project still require live verification.
-
-## Credits and history
-
-DevCode is an independently named fork with historical upstream dependencies.
-The repository retains appropriate third-party notices, upstream license
-information, and compatibility with existing integrations. Renaming the
-product does not change the identity or ownership of third-party technology.
+See repository license and third-party notices. DevCode retains acknowledgments for upstream components and dependencies.

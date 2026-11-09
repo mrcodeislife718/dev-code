@@ -6,7 +6,7 @@ The renamed product is DevCode; do not call the product by its upstream name.
 
 ## Continue existing work
 
-1. Start by reading the actual project files, current Git branch, existing changes,
+1. Start by reading the actual project files, current Git branch (main for DevCode), existing changes,
    saved progress, tests, and anything already implemented.
 2. If `.devcode-factory/START-HERE.md` exists, read it, then
    `.devcode-factory/mission.md`, `next-task.md`, `progress.md`,
@@ -31,7 +31,8 @@ The renamed product is DevCode; do not call the product by its upstream name.
 
 ## Safety and release
 
-- Preserve existing branches and uncommitted work.
+- In the DevCode repository, work exclusively on `main`. Never create or switch to a development branch.
+- Preserve uncommitted work and existing history; never use destructive Git resets.
 - Do not force-reset, delete, publish, push, deploy, or spend money without
   the owner's explicit authorization.
 - A task is only verified when the actual tests or real services prove it.

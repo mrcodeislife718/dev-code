@@ -1,0 +1,29 @@
+name: DevCode reliability checks
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reliability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Syntax and focused reliability tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/reliability/factory-guard.mjs
+          node --check scripts/reliability/worker-coordinator.mjs
+          node --check scripts/devcode-project-continuity.mjs
+          node --check scripts/jobflow-factory.mjs
+          node --test scripts/reliability/*.test.mjs
+      - name: Supervisor recovery tests
+        run: node --test scripts/tests/devcode-project-continuity.test.mjs

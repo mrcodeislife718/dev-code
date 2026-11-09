@@ -23,6 +23,7 @@ import { resolve, dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isIP } from 'node:net';
 import { homedir } from 'node:os';
+import { appendHostEvent, readVerifiedContext, assessLoop, verificationGate, safeCheckCommand } from './reliability/factory-guard.mjs';
 
 const devcode = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const project = resolve(process.env.DEVCODE_PROJECT_DIR || process.cwd());
@@ -444,7 +445,7 @@ function changeBackToRepair(message) {
 function shellStep(title, command, minutes = 20) {
   return new Promise((finish) => {
     let output = '', settled = false;
-    const child = spawn('/bin/sh', ['-lc', command], {
+    const child = spawn('/bin/bash', ['-o', 'pipefail', '-lc', command], {
       cwd: project, detached: true, env: { ...process.env, CI: 'true' },
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -549,23 +550,42 @@ async function productionGate(state) {
   }
   recordRelease(state, { fingerprint, status: 'checking' });
   freeLocalModelMemoryForBuild();
+  const observedChecks = [];
   for (const [name, command] of commands.checks) {
     if (!command) continue;
+    if (!safeCheckCommand(command)) {
+      changeBackToRepair('Ambiguous or masked verification command: ' + name);
+      return 'repair';
+    }
+    const revision = hashWork();
+    if (revision !== fingerprint) {
+      changeBackToRepair('Source changed before ' + name + '; restart checks.');
+      return 'repair';
+    }
     console.log('DevCode production check: ' + name);
+    const startedAt = new Date().toISOString();
     const result = await shellStep(name, command);
+    const finishedAt = new Date().toISOString();
+    const afterRevision = hashWork();
+    observedChecks.push({ name, command, revision, afterRevision, startedAt,
+      finishedAt, observed: true, exitCode: result.code, signal: result.reason });
+    appendHostEvent(project, { type: 'check', revision, check: name,
+      passed: result.ok && !result.reason && revision === afterRevision });
     releaseLog(name + ' exit ' + result.code + ': ' + result.output);
-    if (!result.ok || !running) {
+    if (!result.ok || result.reason || !running || revision !== afterRevision) {
       recordRelease(state, { fingerprint, status: 'checks-failed', failedStep: name });
-      changeBackToRepair(name + ' failed. See .devcode-factory/production-checks.log.');
+      changeBackToRepair(name + ' failed or changed source during verification. See production-checks.log.');
       return 'repair';
     }
   }
-  recordRelease(state, { fingerprint, status: 'checks-passed' });
-  // The code must still match what was tested.
-  if (fingerprint !== hashWork()) {
-    changeBackToRepair('Source changed during production checks; check the latest work and retry.');
+  const verified = verificationGate({ revision: fingerprint,
+    finalRevision: hashWork(), checks: observedChecks });
+  if (!verified.ok) {
+    changeBackToRepair('Host verification rejected: ' + verified.reason);
     return 'repair';
   }
+  appendHostEvent(project, { type: 'verified-checks', revision: fingerprint, passed: true });
+  recordRelease(state, { fingerprint, status: 'checks-passed' });
   if (!commands.permitted || !commands.deploy || !commands.verify) {
     recordRelease(state, { fingerprint, status: 'ready-to-deploy' });
     console.error('Production tests passed. Deployment requires an approved deploy command and live verification command.');
@@ -600,6 +620,7 @@ async function main() {
   if (resolve(exec('git', ['rev-parse', '--show-toplevel'])) !== project) throw Error('Use the root of your existing project.');
   const branch = exec('git', ['branch', '--show-current']);
   if (!branch) throw Error('Detached Git branch: use a normal working branch for continuity.');
+  if (project === devcode && branch !== 'main') throw Error('DevCode repository development requires main only.');
   const bin = process.env.DEVCODE_BIN || process.execPath;
   const prefix = process.env.DEVCODE_BIN ? [] : [join(devcode, 'scripts', 'dev.js')];
   if (!process.env.DEVCODE_BIN && !existsSync(prefix[0])) throw Error('The DevCode entry file is missing.');
@@ -668,9 +689,12 @@ async function main() {
       const beforeCheckpoint = checkpointHash();
       state.active = { started: new Date().toISOString(), before, branch };
       atomic(statePath, JSON.stringify(state, null, 2) + '\n');
+      appendHostEvent(project, { type: interrupted ? 'recovery' : 'round-start', revision: before });
       // Show recovery only when the PREVIOUS process left work unfinished.
       writeIndex({ ...state, active: interrupted ? state.active : null });
+      const recentProof = readVerifiedContext(project, before);
       const prompt = [
+        ...(recentProof ? [recentProof] : []),
         'CONTINUE the EXISTING software project. Do not start over.',
         ...(interrupted ? [
           'RECOVERY: previous work was interrupted; inspect existing unfinished changes first.'
@@ -722,6 +746,13 @@ async function main() {
       const workChanged = before !== hashWork();
       const checkpointChanged = beforeCheckpoint !== checkpointHash();
       const progressed = workChanged || checkpointChanged;
+      const loop = assessLoop(state.loopHistory || [], { changed: progressed,
+        exitCode: result.exit, error: safeLog(result.err || result.out).slice(-1200) });
+      state.loopHistory = loop.history;
+      appendHostEvent(project, { type: 'round-finished', revision: hashWork(), passed: progressed,
+        errorDigest: loop.history.at(-1).errorDigest });
+      if (loop.warn) appendHostEvent(project, { type: loop.stop ? 'loop-stop' : 'loop-warning',
+        revision: hashWork(), details: 'Repeated identical unsuccessful rounds' });
       state = {
         ...state, rounds: state.rounds + 1, branch, active: null,
         stalls: progressed ? 0 : state.stalls + 1,
@@ -738,8 +769,8 @@ async function main() {
       console.log('Round ' + state.rounds + ': ' +
         (workChanged ? 'existing project updated' : checkpointChanged ? 'continuity checkpoint updated' : 'no measurable progress') +
         '. Continue from saved task.');
-      if (state.stalls >= maxStalledRounds || state.sourceStalls >= maxCodelessRounds) {
-        const reason = state.stalls >= maxStalledRounds
+      if (loop.stop || state.stalls >= maxStalledRounds || state.sourceStalls >= maxCodelessRounds) {
+        const reason = loop.stop ? 'repeated-identical-failure' : state.stalls >= maxStalledRounds
           ? 'repeated-no-progress' : 'repeated-no-source-changes';
         appendFileSync(file('blockers.md'),
           '\n## Factory needs a new approach or owner input — ' + new Date().toISOString() +
