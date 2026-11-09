@@ -15,7 +15,7 @@ export function safeCheckCommand(command) {
   // Only simple, direct host commands can certify a release. Complex shell
   // pipelines, substitutions and chaining can mask a failing test exit code.
   // Put multi-step logic in a versioned package script and invoke that script.
-  if (/[;&|><`$\\n\\r]/.test(command)) return false;
+  if (/[;&|><`$\n\r]/.test(command)) return false;
   return true;
 }
 
