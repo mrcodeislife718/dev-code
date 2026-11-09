@@ -33,6 +33,9 @@ jobs:
       - name: Supervisor recovery tests
         id: recovery
         run: node --test scripts/tests/devcode-project-continuity.test.mjs
+      - name: Production factory unit tests
+        id: factory
+        run: node --test scripts/jobflow-factory.test.mjs
 
       - name: Report host-observed CI outcome
         if: always()
@@ -43,8 +46,9 @@ jobs:
           SYNTAX: ${{ steps.syntax.outcome }}
           MODULES: ${{ steps.modules.outcome }}
           RECOVERY: ${{ steps.recovery.outcome }}
+          FACTORY: ${{ steps.factory.outcome }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$RESULT" == "success" ]]; then state=success; else state=failure; fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA"             -f state="$state" -f context="devcode/reliability"             -f description="syntax=$SYNTAX; modules=$MODULES; recovery=$RECOVERY"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA"             -f state="$state" -f context="devcode/reliability"             -f description="syntax=$SYNTAX; modules=$MODULES; recovery=$RECOVERY; factory=$FACTORY"

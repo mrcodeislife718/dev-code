@@ -56,7 +56,7 @@ export function resolveLocalModel(settings, env = process.env) {
     parentProvider?.baseUrl || parentProvider?.baseURL || parentProvider?.base_url || '';
   const auth = settings.security?.auth?.selectedType;
   if (auth && !['openai', 'custom', 'openai-compatible'].includes(auth)) {
-    throw new Error('DevCode uses ' + auth + ' authentication; select the existing local OpenAI-compatible provider first.');
+    throw new Error(auth + ' authentication is not a local provider; select the existing local OpenAI-compatible provider first.');
   }
   if (!model || !isPrivateEndpoint(endpoint)) {
     throw new Error('Local model not verified: set OPENAI_MODEL and OPENAI_BASE_URL to your existing private server or configure the selected model in DevCode. Refusing Copilot/cloud fallback.');
