@@ -17,16 +17,21 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Syntax and focused reliability tests
+      - name: Syntax checks
+        id: syntax
         shell: bash
         run: |
           set -euo pipefail
           node --check scripts/reliability/factory-guard.mjs
           node --check scripts/reliability/worker-coordinator.mjs
+          node --check scripts/reliability/evidence-memory.mjs
           node --check scripts/devcode-project-continuity.mjs
           node --check scripts/jobflow-factory.mjs
-          node --test scripts/reliability/*.test.mjs
+      - name: Reliability module tests
+        id: modules
+        run: node --test scripts/reliability/*.test.mjs
       - name: Supervisor recovery tests
+        id: recovery
         run: node --test scripts/tests/devcode-project-continuity.test.mjs
 
       - name: Report host-observed CI outcome
@@ -35,8 +40,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ job.status }}
           TARGET_SHA: ${{ github.sha }}
+          SYNTAX: ${{ steps.syntax.outcome }}
+          MODULES: ${{ steps.modules.outcome }}
+          RECOVERY: ${{ steps.recovery.outcome }}
         shell: bash
         run: |
           set -euo pipefail
           if [[ "$RESULT" == "success" ]]; then state=success; else state=failure; fi
-          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA"             -f state="$state" -f context="devcode/reliability"             -f description="Host-run syntax, reliability and supervisor tests: $RESULT"
+          gh api -X POST "repos/$GITHUB_REPOSITORY/statuses/$TARGET_SHA"             -f state="$state" -f context="devcode/reliability"             -f description="syntax=$SYNTAX; modules=$MODULES; recovery=$RECOVERY"
